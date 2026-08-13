@@ -25,3 +25,4 @@ Thumbs.db
 .playwright-mcp/
 *.png
 !public/**/*.png
+.claude
