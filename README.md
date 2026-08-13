@@ -32,7 +32,7 @@ If the Visual Studio installer is unavailable, `npm install --global windows-bui
 ### Install & Run
 
 ```powershell
-git clone <your-repo-url> ensemble-win
+git clone https://github.com/yuk1na2312/yuk1ble ensemble-win
 cd ensemble-win
 npm install
 
