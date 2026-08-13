@@ -1,0 +1,41 @@
+#!/usr/bin/env node
+
+/**
+ * ensemble CLI — bin wrapper
+ * Runs the TypeScript CLI entrypoint via Node's --import tsx loader.
+ * This avoids tsx CLI IPC socket issues on long or Unicode filesystem paths.
+ */
+
+const { execFileSync } = require('child_process');
+const { join, resolve } = require('path');
+const { existsSync } = require('fs');
+
+// Resolve the actual package root (not the .bin symlink target)
+function findPackageRoot() {
+  let dir = __dirname;
+  for (let i = 0; i < 5; i++) {
+    const pkgPath = join(dir, 'package.json');
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = require(pkgPath);
+        if (pkg.name === 'ensemble-win') return dir;
+      } catch {}
+    }
+    dir = resolve(dir, '..');
+  }
+  // Fallback: assume bin/ is inside package root
+  return resolve(__dirname, '..');
+}
+
+const root = findPackageRoot();
+const cli = join(root, 'cli', 'ensemble.ts');
+
+try {
+  execFileSync(process.execPath, ['--import', 'tsx', cli, ...process.argv.slice(2)], {
+    cwd: root,
+    stdio: 'inherit',
+    env: Object.assign({}, process.env, { ENSEMBLE_ROOT: root }),
+  });
+} catch (err) {
+  process.exit(err.status || 1);
+}

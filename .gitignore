@@ -1,0 +1,27 @@
+# Dependencies / build
+node_modules/
+dist/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# OS / IDE
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# Runtime data
+*.log
+*.jsonl
+.ensemble-data/
+
+# Tooling scratch
+.playwright-mcp/
+*.png
+!public/**/*.png

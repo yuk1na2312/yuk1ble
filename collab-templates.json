@@ -1,0 +1,64 @@
+{
+  "templates": {
+    "review": {
+      "name": "Code Review",
+      "description": "One agent reads and explains the code, the other hunts for bugs and improvements.",
+      "suggestedTaskPrefix": "Review the following code:",
+      "roles": [
+        {
+          "role": "REVIEWER",
+          "focus": "Read the code thoroughly and describe what it does, how it works, and document its behavior. Provide a clear summary of the architecture, data flow, and key decisions."
+        },
+        {
+          "role": "CRITIC",
+          "focus": "Analyze the code for bugs, security issues, performance problems, and improvement opportunities. Challenge assumptions and suggest concrete fixes with code examples."
+        }
+      ]
+    },
+    "implement": {
+      "name": "Implementation",
+      "description": "Lead plans architecture and task breakdown, worker writes code and tests.",
+      "suggestedTaskPrefix": "Implement the following feature:",
+      "roles": [
+        {
+          "role": "ARCHITECT",
+          "focus": "Plan the architecture, break down the task into clear steps, define interfaces and contracts. Review the worker's code for correctness and design alignment. Share your plan before any coding starts."
+        },
+        {
+          "role": "DEVELOPER",
+          "focus": "Write the implementation code and tests based on the architect's plan. Report progress after each step, surface blockers quickly, and ensure all tests pass before marking complete."
+        }
+      ]
+    },
+    "research": {
+      "name": "Research",
+      "description": "Both agents independently research the topic and then compare findings.",
+      "suggestedTaskPrefix": "Research the following topic:",
+      "roles": [
+        {
+          "role": "RESEARCHER-A",
+          "focus": "Independently research the topic from a technical/implementation angle. Focus on how things work, existing solutions, code examples, and technical trade-offs. Share your findings for comparison."
+        },
+        {
+          "role": "RESEARCHER-B",
+          "focus": "Independently research the topic from an ecosystem/alternatives angle. Focus on available tools, libraries, best practices, community patterns, and real-world usage. Share your findings for comparison."
+        }
+      ]
+    },
+    "debug": {
+      "name": "Debug",
+      "description": "One agent reproduces the bug, the other analyzes root cause.",
+      "suggestedTaskPrefix": "Debug the following issue:",
+      "roles": [
+        {
+          "role": "REPRODUCER",
+          "focus": "Reproduce the bug reliably. Create a minimal reproduction case, document exact steps to trigger it, capture error messages and stack traces. Share reproduction steps with your teammate."
+        },
+        {
+          "role": "ANALYST",
+          "focus": "Analyze the root cause of the bug. Read relevant code paths, trace the execution flow, identify where the logic breaks down. Propose and implement a fix once the reproducer confirms the bug."
+        }
+      ]
+    }
+  }
+}

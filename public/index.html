@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ensemble Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2314161a'/%3E%3Ccircle cx='5' cy='8' r='2.2' fill='%236aa9ff'/%3E%3Ccircle cx='11' cy='8' r='2.2' fill='%237ec98f'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1b1e24;
+    --panel-2: #212530;
+    --line: #2c313c;
+    --text: #d8dee9;
+    --dim: #838c9e;
+    --accent: #6aa9ff;
+    --ok: #7ec98f;
+    --warn: #e3c07b;
+    --err: #e88388;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "Courier New", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.5 var(--mono);
+    display: grid; grid-template-rows: auto 1fr;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 13px; margin: 0; font-weight: 600; letter-spacing: .04em; }
+  header .spacer { flex: 1; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--dim); }
+  .dot.up { background: var(--ok); }
+  .dot.down { background: var(--err); }
+
+  main {
+    display: grid;
+    grid-template-columns: 265px minmax(320px, 1fr) minmax(360px, 1.2fr);
+    min-height: 0;
+  }
+  .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); }
+  .col:last-child { border-right: 0; }
+  .col > h2 {
+    margin: 0; padding: 7px 12px; font-size: 11px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--dim);
+    border-bottom: 1px solid var(--line); background: var(--panel);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .col > h2 .spacer { flex: 1; }
+  .scroll { overflow: auto; flex: 1; min-height: 0; }
+
+  /* teams */
+  .team { padding: 9px 12px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .team:hover { background: var(--panel-2); }
+  .team.sel { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent); }
+  .team .name { font-weight: 600; overflow-wrap: anywhere; }
+  .team .meta { color: var(--dim); font-size: 11px; margin-top: 2px; }
+  .status { font-size: 11px; }
+  .status.active { color: var(--ok); }
+  .status.disbanded, .status.failed { color: var(--err); }
+  .status.forming, .status.paused { color: var(--warn); }
+
+  /* transcript */
+  .msg {
+    padding: 7px 12px 7px 10px; border-bottom: 1px solid var(--line);
+    border-left: 3px solid transparent;  /* speaker colour, set per message */
+  }
+  .msg .hd { display: flex; gap: 8px; font-size: 11px; color: var(--dim); }
+  .msg .from { font-weight: 600; }
+  .msg.ensemble { opacity: .82; }
+  .msg .body { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 3px; }
+
+  form.composer { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--line); background: var(--panel); }
+  input, select, button, textarea {
+    background: var(--panel-2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 5px 8px; font: inherit;
+  }
+  input { flex: 1; min-width: 0; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.danger:hover { border-color: var(--err); color: var(--err); }
+
+  /* panes */
+  .pane { border-bottom: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .pane .hd {
+    padding: 5px 12px; background: var(--panel); font-size: 11px;
+    display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line);
+  }
+  .pane .hd .spacer { flex: 1; }
+  .pane pre {
+    margin: 0; padding: 8px 12px; overflow: auto; flex: 1;
+    white-space: pre; font-size: 12px; line-height: 1.35; color: #c7cede;
+  }
+
+  /* log */
+  .logline { padding: 1px 12px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+  .logline.warn { color: var(--warn); }
+  .logline.error { color: var(--err); }
+  .logline .ts { color: var(--dim); }
+  .empty { padding: 14px 12px; color: var(--dim); }
+
+  /* new-team form */
+  #newTeam {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 9px; border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  /* `display: flex` above outranks the browser's [hidden] rule, so the "+ new"
+     toggle needs this or the form is permanently open. */
+  #newTeam[hidden] { display: none; }
+  #newTeam textarea { resize: vertical; }
+  #newTeam .row { display: flex; align-items: center; gap: 8px; }
+  #ntStatus { color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
+  #ntStatus.err { color: var(--err); }
+  #ntStatus.ok { color: var(--ok); }
+  .drawer { border-top: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ENSEMBLE MONITOR</h1>
+  <span><span class="dot" id="health"></span> <span id="healthText" style="color:var(--dim)">connecting…</span></span>
+  <span class="spacer"></span>
+  <label style="color:var(--dim)"><input type="checkbox" id="autoscroll" checked style="vertical-align:-1px"> follow</label>
+  <button id="refresh">refresh</button>
+</header>
+
+<main>
+  <section class="col">
+    <h2>Teams <span class="spacer"></span><span id="teamCount" style="text-transform:none"></span>
+      <button id="toggleNew" style="padding:1px 7px">+ new</button>
+    </h2>
+    <form id="newTeam" hidden>
+      <textarea id="ntTask" rows="4" placeholder="Task for the team…"></textarea>
+      <input id="ntAgents" value="codex, claude code" title="Comma-separated. The first is the lead.">
+      <input id="ntCwd" placeholder="working directory (blank = server cwd)">
+      <div class="row">
+        <button type="submit" id="ntGo">launch</button>
+        <span id="ntStatus"></span>
+      </div>
+    </form>
+    <div class="scroll" id="teams"></div>
+  </section>
+
+  <section class="col">
+    <h2>Transcript <span class="spacer"></span><span id="teamTitle" style="text-transform:none;color:var(--text)"></span>
+      <button id="disband" class="danger" disabled>disband</button>
+    </h2>
+    <div class="scroll" id="feed"><div class="empty">Select a team.</div></div>
+    <form class="composer" id="composer">
+      <select id="to"><option value="team">→ team</option></select>
+      <input id="text" placeholder="steer the team…" autocomplete="off" disabled>
+      <button type="submit" id="send" disabled>send</button>
+    </form>
+  </section>
+
+  <section class="col">
+    <h2>Agent panes <span class="spacer"></span><span style="text-transform:none;color:var(--dim)">live PTY</span></h2>
+    <div class="scroll" id="panes"><div class="empty">Select a team.</div></div>
+    <div class="drawer" style="flex:0 0 34%">
+      <h2 style="margin:0;padding:7px 12px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);border-bottom:1px solid var(--line);background:var(--panel);display:flex;gap:8px">
+        Server log <span class="spacer" style="flex:1"></span><button id="clearLog" style="padding:1px 6px">clear</button>
+      </h2>
+      <div class="scroll" id="log"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id)
+const state = { teams: [], selected: null, logSeq: 0, paneEls: new Map() }
+
+// Escapes for attribute context too, not just text: agent/program names come from the
+// free-text "new team" form, and land in data-id="", class="" and <option value="">.
+const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }
+const esc = s => String(s).replace(/[&<>"'`]/g, c => ESCAPES[c])
+const timeOf = iso => { try { return new Date(iso).toLocaleTimeString() } catch { return '' } }
+
+async function api(path, opts) {
+  const res = await fetch(path, opts)
+  if (!res.ok) throw new Error(res.status + ' ' + path)
+  return res.json()
+}
+
+function follow(el) { if ($('autoscroll').checked) el.scrollTop = el.scrollHeight }
+
+// ── teams ───────────────────────────────────────────────────────────────────
+async function pollTeams() {
+  const { teams } = await api('/api/ensemble/teams')
+  state.teams = teams || []
+  $('teamCount').textContent = state.teams.length
+  const box = $('teams')
+  box.innerHTML = state.teams.length
+    ? state.teams.map(t => `
+      <div class="team ${t.id === state.selected ? 'sel' : ''}" data-id="${esc(t.id)}">
+        <div class="name">${esc(t.name)}</div>
+        <div class="meta">
+          <span class="status ${esc(t.status)}">${esc(t.status)}</span>
+          · ${(t.agents || []).length} agents
+        </div>
+        <div class="meta">${(t.agents || []).map(a => esc(a.name)).join(', ')}</div>
+      </div>`).join('')
+    : '<div class="empty">No teams yet.<br>npm run cli -- run "&lt;task&gt;"</div>'
+
+  for (const el of box.querySelectorAll('.team')) {
+    el.onclick = () => select(el.dataset.id)
+  }
+  if (state.selected && !state.teams.some(t => t.id === state.selected)) select(null)
+}
+
+function currentTeam() { return state.teams.find(t => t.id === state.selected) }
+
+// ── create a team ───────────────────────────────────────────────────────────
+// POST /api/ensemble/teams does not return until every agent is ready and
+// prompted, which can take minutes. So the request is deliberately NOT awaited
+// for UI purposes: the team record is written early, so normal polling shows it
+// within a couple of seconds. Errors still surface when the promise settles.
+$('toggleNew').onclick = () => {
+  const form = $('newTeam')
+  form.hidden = !form.hidden
+  if (!form.hidden) $('ntTask').focus()
+}
+
+$('newTeam').onsubmit = e => {
+  e.preventDefault()
+  const task = $('ntTask').value.trim()
+  if (!task) return
+
+  const programs = $('ntAgents').value.split(',').map(s => s.trim()).filter(Boolean)
+  if (programs.length < 2) {
+    setNtStatus('Need at least 2 agents — they have to talk to each other.', 'err')
+    return
+  }
+
+  const body = {
+    name: `run-${Date.now()}`,
+    description: task,
+    agents: programs.map((program, i) => ({
+      program,
+      role: i === 0 ? 'lead' : 'worker',
+      hostId: 'local',
+    })),
+    feedMode: 'live',
+  }
+  const cwd = $('ntCwd').value.trim()
+  if (cwd) body.workingDirectory = cwd
+
+  $('ntGo').disabled = true
+  setNtStatus('launching — agents take up to ~150s to be ready…')
+
+  api('/api/ensemble/teams', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(() => {
+    setNtStatus('team started', 'ok')
+    $('ntTask').value = ''
+  }).catch(err => {
+    setNtStatus('failed: ' + err.message, 'err')
+  }).finally(() => {
+    $('ntGo').disabled = false
+  })
+
+  // Surface the team as soon as the record exists, without waiting on the POST.
+  setTimeout(() => pollTeams().catch(() => {}), 1500)
+}
+
+function setNtStatus(text, cls) {
+  const el = $('ntStatus')
+  el.textContent = text
+  el.className = cls || ''
+}
+
+function select(id) {
+  state.selected = id
+  state.paneEls.clear()
+  $('panes').innerHTML = '<div class="empty">Loading…</div>'
+  $('feed').innerHTML = '<div class="empty">Loading…</div>'
+  const team = currentTeam()
+  $('teamTitle').textContent = team ? team.name : ''
+  $('disband').disabled = !team || team.status === 'disbanded'
+  $('text').disabled = !team
+  $('send').disabled = !team
+  const to = $('to')
+  to.innerHTML = '<option value="team">→ team</option>'
+    + (team ? (team.agents || []).map(a =>
+      `<option value="${esc(a.name)}">${speakerStyle(a.name).icon} ${esc(a.name)}</option>`).join('') : '')
+  pollTeams().catch(() => {})
+  if (id) { pollFeed().catch(() => {}); pollPanes().catch(() => {}) }
+}
+
+// ── speaker colors ──────────────────────────────────────────────────────────
+// One colour + icon per agent so a two-way transcript is readable at a glance.
+// Keyed by program (mirroring the colour/icon fields in agents.json) with a
+// per-position fallback, so two agents are never the same colour even when the
+// team runs two of the same program.
+const PROGRAM_STYLES = [
+  { match: 'codex', color: '#6aa9ff', icon: '◆' },
+  { match: 'claude', color: '#7ec98f', icon: '●' },
+  { match: 'aider', color: '#c99ae3', icon: '▲' },
+  { match: 'gemini', color: '#e3c07b', icon: '★' },
+  { match: 'opencode', color: '#6ed4d0', icon: '▣' },
+]
+const FALLBACK_STYLES = [
+  { color: '#6aa9ff', icon: '◆' }, { color: '#7ec98f', icon: '●' },
+  { color: '#c99ae3', icon: '▲' }, { color: '#e3c07b', icon: '★' },
+  { color: '#6ed4d0', icon: '▣' }, { color: '#e88388', icon: '◇' },
+]
+const SYSTEM_STYLE = { color: 'var(--warn)', icon: '⚙' }
+const USER_STYLE = { color: '#d8dee9', icon: '›' }
+
+function speakerStyle(who) {
+  if (who === 'ensemble') return SYSTEM_STYLE
+  if (who === 'user') return USER_STYLE
+  const agents = (currentTeam() || {}).agents || []
+  const index = agents.findIndex(a => a.name === who)
+  if (index < 0) return { color: 'var(--dim)', icon: '·' }
+  const program = String(agents[index].program || '').toLowerCase()
+  const byProgram = PROGRAM_STYLES.find(s => program.includes(s.match))
+  // Two agents on the same program: keep the icon, take a distinct colour.
+  const twin = agents.findIndex(a => a.program === agents[index].program) !== index
+  if (byProgram && !twin) return byProgram
+  const fallback = FALLBACK_STYLES[index % FALLBACK_STYLES.length]
+  return { color: fallback.color, icon: byProgram ? byProgram.icon : fallback.icon }
+}
+
+// ── transcript ──────────────────────────────────────────────────────────────
+async function pollFeed() {
+  if (!state.selected) return
+  const { messages } = await api(`/api/ensemble/teams/${encodeURIComponent(state.selected)}/feed`)
+  const box = $('feed')
+  box.innerHTML = (messages && messages.length)
+    ? messages.map(m => {
+      const style = speakerStyle(m.from)
+      return `
+      <div class="msg ${m.from === 'ensemble' ? 'ensemble' : ''}" style="border-left-color:${style.color}">
+        <div class="hd">
+          <span class="from" style="color:${style.color}">${style.icon} ${esc(m.from)}</span>
+          <span>→ ${esc(m.to)}</span><span>${timeOf(m.timestamp)}</span>
+        </div>
+        <div class="body">${esc(m.content)}</div>
+      </div>`
+    }).join('')
+    : '<div class="empty">No messages yet.</div>'
+  follow(box)
+}
+
+$('composer').onsubmit = async e => {
+  e.preventDefault()
+  const text = $('text').value.trim()
+  if (!text || !state.selected) return
+  $('send').disabled = true
+  try {
+    await api(`/api/ensemble/teams/${encodeURIComponent(state.selected)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: $('to').value, from: 'user', content: text }),
+    })
+    $('text').value = ''
+    await pollFeed()
+  } catch (err) {
+    alert('Send failed: ' + err.message)
+  } finally {
+    $('send').disabled = false
+  }
+}
+
+$('disband').onclick = async () => {
+  const team = currentTeam()
+  if (!team || !confirm(`Disband "${team.name}"? This kills its agent sessions.`)) return
+  try {
+    await api(`/api/ensemble/teams/${encodeURIComponent(team.id)}/disband`, { method: 'POST' })
+  } catch (err) {
+    alert('Disband failed: ' + err.message)
+  }
+  await pollTeams()
+}
+
+// ── agent panes ─────────────────────────────────────────────────────────────
+async function pollPanes() {
+  const team = currentTeam()
+  if (!team) return
+  const agents = team.agents || []
+  const box = $('panes')
+
+  if (state.paneEls.size !== agents.length) {
+    state.paneEls.clear()
+    box.innerHTML = agents.length ? '' : '<div class="empty">No agents.</div>'
+    for (const agent of agents) {
+      const session = `${team.name}-${agent.name}`
+      const wrap = document.createElement('div')
+      wrap.className = 'pane'
+      wrap.style.height = agents.length > 1 ? `${100 / agents.length}%` : '100%'
+      const style = speakerStyle(agent.name)
+      wrap.innerHTML = `
+        <div class="hd" style="box-shadow: inset 3px 0 0 ${style.color}">
+          <strong style="color:${style.color}">${style.icon} ${esc(agent.name)}</strong>
+          <span style="color:var(--dim)">${esc(agent.program)} · ${esc(agent.role || '')}</span>
+          <span class="spacer"></span>
+          <span class="live" style="color:var(--dim)">…</span>
+        </div><pre></pre>`
+      box.appendChild(wrap)
+      state.paneEls.set(session, wrap)
+    }
+  }
+
+  await Promise.all(agents.map(async agent => {
+    const session = `${team.name}-${agent.name}`
+    const wrap = state.paneEls.get(session)
+    if (!wrap) return
+    try {
+      const data = await api(`/api/ensemble/sessions/${encodeURIComponent(session)}/pane?lines=80`)
+      const live = wrap.querySelector('.live')
+      live.textContent = data.exists ? 'live' : 'no session'
+      live.style.color = data.exists ? 'var(--ok)' : 'var(--err)'
+      const pre = wrap.querySelector('pre')
+      const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40
+      pre.textContent = data.pane || (data.exists ? '(empty)' : '')
+      if (atBottom) pre.scrollTop = pre.scrollHeight
+    } catch { /* transient */ }
+  }))
+}
+
+// ── server log ──────────────────────────────────────────────────────────────
+async function pollLog() {
+  const data = await api('/api/ensemble/logs?since=' + state.logSeq)
+  if (!data.entries.length) { state.logSeq = data.latest; return }
+  state.logSeq = data.latest
+  const box = $('log')
+  const frag = document.createDocumentFragment()
+  for (const entry of data.entries) {
+    const div = document.createElement('div')
+    div.className = 'logline ' + entry.level
+    div.innerHTML = `<span class="ts">${timeOf(entry.timestamp)}</span> ${esc(entry.text)}`
+    frag.appendChild(div)
+  }
+  box.appendChild(frag)
+  while (box.childElementCount > 1500) box.removeChild(box.firstChild)
+  follow(box)
+}
+$('clearLog').onclick = () => { $('log').innerHTML = '' }
+
+// ── health + loop ───────────────────────────────────────────────────────────
+async function pollHealth() {
+  try {
+    await api('/api/v1/health')
+    $('health').className = 'dot up'
+    $('healthText').textContent = 'server up'
+  } catch {
+    $('health').className = 'dot down'
+    $('healthText').textContent = 'server unreachable'
+  }
+}
+
+async function tick() {
+  await pollHealth()
+  await Promise.allSettled([pollTeams(), pollLog(), pollFeed(), pollPanes()])
+}
+
+$('refresh').onclick = () => tick()
+tick()
+setInterval(() => { tick() }, 2000)
+</script>
+</body>
+</html>

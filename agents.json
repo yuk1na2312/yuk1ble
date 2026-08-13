@@ -1,0 +1,48 @@
+{
+  "codex": {
+    "name": "codex",
+    "command": "codex",
+    "flags": ["--dangerously-bypass-approvals-and-sandbox"],
+    "readyMarker": "OpenAI Codex",
+    "inputMethod": "pasteFromFile",
+    "color": "blue",
+    "icon": "◆"
+  },
+  "claude": {
+    "name": "claude",
+    "command": "claude",
+    "flags": ["--permission-mode", "auto"],
+    "readyMarker": "❯",
+    "readyMarkers": ["? for shortcuts"],
+    "inputMethod": "sendKeys",
+    "color": "green",
+    "icon": "●"
+  },
+  "aider": {
+    "name": "aider",
+    "command": "aider",
+    "flags": [],
+    "readyMarker": "❯",
+    "inputMethod": "sendKeys",
+    "color": "magenta",
+    "icon": "▲"
+  },
+  "gemini": {
+    "name": "gemini",
+    "command": "gemini",
+    "flags": ["--yolo"],
+    "readyMarker": "Type your message",
+    "inputMethod": "pasteFromFile",
+    "color": "yellow",
+    "icon": "★"
+  },
+  "opencode": {
+    "name": "opencode",
+    "command": "opencode",
+    "flags": [],
+    "readyMarker": "Ask anything",
+    "inputMethod": "sendKeys",
+    "color": "cyan",
+    "icon": "▣"
+  }
+}
