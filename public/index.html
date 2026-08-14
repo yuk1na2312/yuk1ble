@@ -63,6 +63,23 @@
   .status.active { color: var(--ok); }
   .status.disbanded, .status.failed { color: var(--err); }
   .status.forming, .status.paused { color: var(--warn); }
+  .team.archived { opacity: .55; }
+  .teamActions { display: flex; gap: 6px; margin-top: 6px; }
+  .teamActions button { padding: 2px 8px; font-size: 11px; }
+  .archiveToggle { padding: 6px 12px; color: var(--dim); cursor: pointer; font-size: 11px; }
+  .archiveToggle:hover { color: var(--accent); }
+  .archivedGroup { border-top: 1px dashed var(--line); }
+
+  /* accounts */
+  .account { padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  .account .name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .account .status { font-size: 11px; }
+  .account .meta { color: var(--dim); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
+
+  /* header tabs */
+  .tabs { display: flex; gap: 4px; }
+  .tabs .tab { padding: 3px 10px; }
+  .tabs .tab.active { border-color: var(--accent); color: var(--accent); }
 
   /* transcript */
   .msg {
@@ -113,6 +130,11 @@
   /* `display: flex` above outranks the browser's [hidden] rule, so the "+ new"
      toggle needs this or the form is permanently open. */
   #newTeam[hidden] { display: none; }
+  /* Same trap as #newTeam above: #monitorView (`main { display:grid }`) and
+     #accountsView (`.col { display:flex }`) both set their own `display`,
+     which can tie with or outrank the UA [hidden] rule. Compound id+attribute
+     selectors always win, so the tab switcher's hidden attribute actually hides. */
+  #monitorView[hidden], #accountsView[hidden] { display: none; }
   #newTeam textarea { resize: vertical; }
   #newTeam .row { display: flex; align-items: center; gap: 8px; }
   #ntStatus { color: var(--dim); font-size: 11px; overflow-wrap: anywhere; }
@@ -124,13 +146,17 @@
 <body>
 <header>
   <h1>ENSEMBLE MONITOR</h1>
+  <nav class="tabs">
+    <button type="button" class="tab active" id="tabMonitor">monitor</button>
+    <button type="button" class="tab" id="tabAccounts">accounts</button>
+  </nav>
   <span><span class="dot" id="health"></span> <span id="healthText" style="color:var(--dim)">connecting…</span></span>
   <span class="spacer"></span>
   <label style="color:var(--dim)"><input type="checkbox" id="autoscroll" checked style="vertical-align:-1px"> follow</label>
   <button id="refresh">refresh</button>
 </header>
 
-<main>
+<main id="monitorView">
   <section class="col">
     <h2>Teams <span class="spacer"></span><span id="teamCount" style="text-transform:none"></span>
       <button id="toggleNew" style="padding:1px 7px">+ new</button>
@@ -171,9 +197,18 @@
   </section>
 </main>
 
+<section class="col" id="accountsView" hidden>
+  <h2>Accounts <span class="spacer"></span><button id="refreshAccounts" style="padding:1px 7px">refresh</button></h2>
+  <div class="scroll" id="accounts"><div class="empty">Loading…</div></div>
+</section>
+
 <script>
 const $ = id => document.getElementById(id)
-const state = { teams: [], selected: null, logSeq: 0, paneEls: new Map() }
+const state = {
+  teams: [], selected: null, logSeq: 0, paneEls: new Map(),
+  archivedExpanded: false,   // persisted here, not in the DOM — pollTeams rebuilds #teams wholesale
+  activeTab: 'monitor', accountsTimer: null,
+}
 
 // Escapes for attribute context too, not just text: agent/program names come from the
 // free-text "new team" form, and land in data-id="", class="" and <option value="">.
@@ -187,30 +222,136 @@ async function api(path, opts) {
   return res.json()
 }
 
+// Like api(), but reads the JSON body even on failure and throws the server's
+// own `error` string — archive/purge need that surfaced verbatim (409/404/400).
+async function apiAction(path, opts) {
+  const res = await fetch(path, opts)
+  let data = {}
+  try { data = await res.json() } catch { /* no body */ }
+  if (!res.ok) throw new Error(data.error || (res.status + ' ' + path))
+  return data
+}
+
 function follow(el) { if ($('autoscroll').checked) el.scrollTop = el.scrollHeight }
 
 // ── teams ───────────────────────────────────────────────────────────────────
+// Archived runs (archivedAt set) are hidden by default behind a toggle whose
+// open/closed state lives in `state.archivedExpanded`, not the DOM — pollTeams
+// replaces #teams wholesale every tick, so anything held only in the DOM here
+// would reset on the next poll.
+function renderTeamRow(t, archived) {
+  const isActiveRun = t.status === 'active'
+  const controls = archived
+    ? `<button class="unarchiveBtn" data-id="${esc(t.id)}" title="Restore to the active list">restore</button>
+       <button class="purgeBtn danger" data-id="${esc(t.id)}" title="Permanently erase this run">purge</button>`
+    : `<button class="archiveBtn" data-id="${esc(t.id)}"${isActiveRun ? ' disabled title="Disband this run first"' : ''}>archive</button>`
+  return `
+    <div class="team ${archived ? 'archived' : ''} ${t.id === state.selected ? 'sel' : ''}" data-id="${esc(t.id)}">
+      <div class="name">${esc(t.name)}</div>
+      <div class="meta">
+        <span class="status ${esc(t.status)}">${esc(t.status)}</span>
+        · ${(t.agents || []).length} agents
+      </div>
+      <div class="meta">${(t.agents || []).map(a => esc(a.name)).join(', ')}</div>
+      <div class="teamActions">${controls}</div>
+    </div>`
+}
+
 async function pollTeams() {
   const { teams } = await api('/api/ensemble/teams')
   state.teams = teams || []
-  $('teamCount').textContent = state.teams.length
+  const active = state.teams.filter(t => !t.archivedAt)
+  const archived = state.teams.filter(t => t.archivedAt)
+  $('teamCount').textContent = active.length
+
   const box = $('teams')
-  box.innerHTML = state.teams.length
-    ? state.teams.map(t => `
-      <div class="team ${t.id === state.selected ? 'sel' : ''}" data-id="${esc(t.id)}">
-        <div class="name">${esc(t.name)}</div>
-        <div class="meta">
-          <span class="status ${esc(t.status)}">${esc(t.status)}</span>
-          · ${(t.agents || []).length} agents
-        </div>
-        <div class="meta">${(t.agents || []).map(a => esc(a.name)).join(', ')}</div>
-      </div>`).join('')
-    : '<div class="empty">No teams yet.<br>npm run cli -- run "&lt;task&gt;"</div>'
+  let html = active.length
+    ? active.map(t => renderTeamRow(t, false)).join('')
+    : (archived.length ? '' : '<div class="empty">No teams yet.<br>npm run cli -- run "&lt;task&gt;"</div>')
+
+  if (archived.length) {
+    html += `<div class="archiveToggle" id="archiveToggle">[ ${
+      state.archivedExpanded ? 'hide archived' : `show ${archived.length} archived`
+    } ]</div>`
+    if (state.archivedExpanded) {
+      html += `<div class="archivedGroup">${archived.map(t => renderTeamRow(t, true)).join('')}</div>`
+    }
+  }
+  box.innerHTML = html
 
   for (const el of box.querySelectorAll('.team')) {
     el.onclick = () => select(el.dataset.id)
   }
+  const toggle = $('archiveToggle')
+  if (toggle) toggle.onclick = () => { state.archivedExpanded = !state.archivedExpanded; pollTeams().catch(() => {}) }
+  for (const el of box.querySelectorAll('.archiveBtn')) {
+    el.onclick = e => { e.stopPropagation(); const t = state.teams.find(x => x.id === el.dataset.id); if (t) archiveTeam(t, true) }
+  }
+  for (const el of box.querySelectorAll('.unarchiveBtn')) {
+    el.onclick = e => { e.stopPropagation(); const t = state.teams.find(x => x.id === el.dataset.id); if (t) archiveTeam(t, false) }
+  }
+  for (const el of box.querySelectorAll('.purgeBtn')) {
+    el.onclick = e => { e.stopPropagation(); const t = state.teams.find(x => x.id === el.dataset.id); if (t) purgeTeam(t) }
+  }
+
   if (state.selected && !state.teams.some(t => t.id === state.selected)) select(null)
+  refreshSelectionControls()
+}
+
+// #disband (and the composer inputs) reflect the *currently selected* team's
+// live status. This must run every poll tick, not just once from select() —
+// a status change (e.g. active -> disbanded from elsewhere) would otherwise
+// leave a stale disabled state until the user re-selects the team.
+function refreshSelectionControls() {
+  const team = currentTeam()
+  $('disband').disabled = !team || team.status === 'disbanded'
+  $('text').disabled = !team
+  $('send').disabled = !team
+}
+
+async function archiveTeam(team, archived) {
+  if (archived && !confirm(
+    `Archive "${team.name}"?\n\nIt stays on disk and can be restored later from the archived list.`
+  )) return
+  try {
+    await apiAction(`/api/ensemble/teams/${encodeURIComponent(team.id)}/archive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ archived }),
+    })
+  } catch (err) {
+    alert((archived ? 'Archive' : 'Restore') + ' failed: ' + err.message)
+  }
+  await pollTeams()
+}
+
+// The message count is fetched here rather than read from a poll cache: purge
+// is offered on *archived* runs, which are never the selected team, so pollFeed
+// has never seen their transcript. If the fetch fails the confirm still names
+// what is destroyed, just without a number.
+async function messageCount(teamId) {
+  try {
+    const { messages } = await api(`/api/ensemble/teams/${encodeURIComponent(teamId)}/feed`)
+    return (messages || []).length
+  } catch { return null }
+}
+
+async function purgeTeam(team) {
+  const count = await messageCount(team.id)
+  const countText = typeof count === 'number' ? `${count} message${count === 1 ? '' : 's'}` : 'its messages'
+  if (!confirm(
+    `Permanently purge "${team.name}"?\n\nThis CANNOT be undone. It erases the transcript (${countText}), ` +
+    `both message stores, and the run's runtime artifacts.`
+  )) return
+  try {
+    const data = await apiAction(`/api/ensemble/teams/${encodeURIComponent(team.id)}/purge`, { method: 'POST' })
+    if (data.warnings && data.warnings.length) alert('Purge finished with warnings:\n' + data.warnings.join('\n'))
+  } catch (err) {
+    alert('Purge failed: ' + err.message)
+    return
+  }
+  if (state.selected === team.id) select(null)
+  await pollTeams()
 }
 
 function currentTeam() { return state.teams.find(t => t.id === state.selected) }
@@ -445,6 +586,75 @@ async function pollLog() {
 }
 $('clearLog').onclick = () => { $('log').innerHTML = '' }
 
+// ── accounts ────────────────────────────────────────────────────────────────
+// Read-only. GET /api/ensemble/accounts runs each CLI's own status subcommand
+// server-side and returns an allowlisted {program,state,account,plan,detail}.
+// There is deliberately no sign-in or sign-out control here — see the design
+// doc's Non-goals: the HTTP API has no auth, so a logout button would be a
+// one-line unauthenticated curl that ends a paid subscription session.
+const ACCOUNT_STATE_COLORS = {
+  'signed-in': 'var(--ok)',
+  'signed-out': 'var(--warn)',
+  'unsupported': 'var(--dim)',
+  'error': 'var(--err)',
+}
+
+// Probes are cached server-side for 60s, so polling faster than that only
+// re-serves the same cache. This interval runs *only* while the tab is open.
+const ACCOUNTS_POLL_MS = 60_000
+
+function renderAccount(a) {
+  const color = ACCOUNT_STATE_COLORS[a.state] || 'var(--dim)'
+  const style = PROGRAM_STYLES.find(s => String(a.program).toLowerCase().includes(s.match))
+  const meta = [
+    a.account ? `account: ${esc(a.account)}` : '',
+    a.plan ? `plan: ${esc(a.plan)}` : '',
+    a.detail ? esc(a.detail) : '',
+  ].filter(Boolean)
+  return `
+    <div class="account">
+      <div class="name">
+        <span style="color:${style ? style.color : 'var(--dim)'}">${style ? style.icon : '·'}</span>
+        <span>${esc(a.program)}</span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="status" style="color:${color}">${esc(a.state)}</span>
+      </div>
+      ${meta.map(m => `<div class="meta">${m}</div>`).join('')}
+    </div>`
+}
+
+async function pollAccounts() {
+  const box = $('accounts')
+  try {
+    const accounts = await api('/api/ensemble/accounts')
+    box.innerHTML = (accounts && accounts.length)
+      ? accounts.map(renderAccount).join('')
+      : '<div class="empty">No agent programs known.</div>'
+  } catch (err) {
+    box.innerHTML = `<div class="empty">Could not read account status: ${esc(err.message)}</div>`
+  }
+}
+
+function switchTab(tab) {
+  state.activeTab = tab
+  $('monitorView').hidden = tab !== 'monitor'
+  $('accountsView').hidden = tab !== 'accounts'
+  $('tabMonitor').classList.toggle('active', tab === 'monitor')
+  $('tabAccounts').classList.toggle('active', tab === 'accounts')
+
+  // Own interval, cleared on the way out, so a hidden tab never polls.
+  clearInterval(state.accountsTimer)
+  state.accountsTimer = null
+  if (tab === 'accounts') {
+    pollAccounts()
+    state.accountsTimer = setInterval(() => pollAccounts(), ACCOUNTS_POLL_MS)
+  }
+}
+
+$('tabMonitor').onclick = () => switchTab('monitor')
+$('tabAccounts').onclick = () => switchTab('accounts')
+$('refreshAccounts').onclick = () => pollAccounts()
+
 // ── health + loop ───────────────────────────────────────────────────────────
 async function pollHealth() {
   try {
@@ -459,10 +669,21 @@ async function pollHealth() {
 
 async function tick() {
   await pollHealth()
-  await Promise.allSettled([pollTeams(), pollLog(), pollFeed(), pollPanes()])
+  // The transcript and the PTY panes are only polled while the monitor tab is
+  // visible — capturing panes for a hidden view is pure server work for pixels
+  // nobody can see. Teams and the log keep polling so switching back is instant.
+  const monitorVisible = state.activeTab === 'monitor'
+  await Promise.allSettled(
+    monitorVisible
+      ? [pollTeams(), pollLog(), pollFeed(), pollPanes()]
+      : [pollTeams(), pollLog()],
+  )
 }
 
-$('refresh').onclick = () => tick()
+$('refresh').onclick = () => {
+  tick()
+  if (state.activeTab === 'accounts') pollAccounts()
+}
 tick()
 setInterval(() => { tick() }, 2000)
 </script>

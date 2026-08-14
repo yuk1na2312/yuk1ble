@@ -9,11 +9,12 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
-  getTeamFeed, sendTeamMessage, disbandTeam,
+  getTeamFeed, sendTeamMessage, disbandTeam, archiveTeam, purgeTeam,
 } from './services/ensemble-service'
 import { getRuntime, setRuntime } from './lib/agent-runtime'
 import { PtyRuntime } from './lib/pty-runtime'
 import { installLogCapture, getLogEntries } from './lib/log-buffer'
+import { getAccountStatuses } from './lib/account-status'
 
 installLogCapture()
 setRuntime(new PtyRuntime())
@@ -199,6 +200,28 @@ const server = http.createServer(async (req, res) => {
       return json(res, result.data, result.status, origin)
     }
 
+    // Archive / unarchive: /api/ensemble/teams/:id/archive
+    const archiveMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/archive$/)
+    if (archiveMatch && method === 'POST') {
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+      const result = await archiveTeam(archiveMatch[1], Boolean(body.archived))
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
+    // Purge: /api/ensemble/teams/:id/purge
+    const purgeMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/purge$/)
+    if (purgeMatch && method === 'POST') {
+      const result = await purgeTeam(purgeMatch[1])
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
     // Feed: /api/ensemble/teams/:id/feed
     const feedMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)
     if (feedMatch && method === 'GET') {
@@ -225,6 +248,14 @@ const server = http.createServer(async (req, res) => {
     if (path === '/api/ensemble/logs' && method === 'GET') {
       const since = Number(url.searchParams.get('since'))
       return json(res, getLogEntries(Number.isFinite(since) ? since : undefined), 200, origin)
+    }
+
+    // Read-only account status for each agent CLI: /api/ensemble/accounts
+    // Strictly GET — no login/logout route belongs here. The HTTP API has no
+    // auth (loopback by design), so a logout route would be an unauthenticated
+    // curl that ends a paid subscription session. See design doc "Non-goals".
+    if (path === '/api/ensemble/accounts' && method === 'GET') {
+      return json(res, await getAccountStatuses(), 200, origin)
     }
 
     // Monitoring UI

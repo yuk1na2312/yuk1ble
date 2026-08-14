@@ -4,12 +4,13 @@
  * Uses agent-spawner.ts for local/remote agent lifecycle.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { v4 as uuidv4, validate as isUuid } from 'uuid'
 import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
 import {
-  createTeam, getTeam, updateTeam, loadTeams,
+  createTeam, getTeam, updateTeam, loadTeams, deleteTeam,
   appendMessage, getMessages,
 } from '../lib/ensemble-registry'
+import { getEnsembleRegistryDir } from '../lib/ensemble-paths'
 import {
   spawnLocalAgent, killLocalAgent,
   spawnRemoteAgent as spawnRemote, killRemoteAgent,
@@ -1350,4 +1351,91 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
   } catch { /* non-fatal */ }
 
   return { data: { team: updated! }, status: 200 }
+}
+
+/**
+ * Archive (or unarchive) a run: sets/clears `archivedAt` only, no disk writes.
+ * Refused on an active run — resurrection races come from a live agent's
+ * `team-say` (cli/ensemble.ts) and the watchdog's `appendMessage`
+ * (lib/agent-watchdog.ts), both of which `mkdir -p` on write. Disband first.
+ */
+export async function archiveTeam(teamId: string, archived: boolean): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+
+  if (team.status === 'active') {
+    return { error: 'Cannot archive an active run — disband it first', status: 409 }
+  }
+
+  const updated = updateTeam(teamId, {
+    archivedAt: archived ? new Date().toISOString() : undefined,
+  })
+  return { data: { team: updated! }, status: 200 }
+}
+
+/**
+ * Irreversibly erase an archived run: both message feed stores, runtime
+ * artifacts, and the teams.json record. Order is load-bearing — see
+ * docs/superpowers/specs/2026-08-14-run-removal-and-accounts-design.md §1.3.
+ *
+ * 1. getTeam is also the path-traversal gate: server.ts captures the id with
+ *    ([^/]+) and neither decodes nor validates it before this ever runs.
+ * 2. UUID validation is defense-in-depth on top of that, before the
+ *    recursive deletes below ever touch a filesystem path built from teamId.
+ * 3/4. Active runs and unarchived runs are refused — purge is only reachable
+ *    on an archived run, which is what makes the two tiers real.
+ * 5. Stop the bridge before deleting the files it tails.
+ * 6. Remove both feed stores — getMessages() merges them at read time, so
+ *    deleting only one leaves half the transcript alive.
+ * 7. deleteTeam last: if any earlier step throws, the record survives and
+ *    the user can retry. Deleting the record first would strand files with
+ *    nothing pointing at them.
+ */
+export async function purgeTeam(teamId: string): Promise<ServiceResult<{ ok: true; warnings: string[] }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+
+  if (!isUuid(teamId)) return { error: 'Invalid team id', status: 400 }
+
+  if (team.status === 'active') {
+    return { error: 'Cannot purge an active run — disband it first', status: 409 }
+  }
+  if (!team.archivedAt) {
+    return { error: 'Cannot purge a run that has not been archived', status: 409 }
+  }
+
+  const warnings: string[] = []
+
+  // Signal the bridge to stop *before* touching its bookkeeping files, same
+  // idiom as disbandTeam: it polls .finished and exits cleanly on it.
+  try {
+    fs.mkdirSync(collabRuntimeDir(teamId), { recursive: true })
+    fs.writeFileSync(collabFinishedMarker(teamId), new Date().toISOString())
+  } catch { /* non-fatal cleanup */ }
+  await stopCollabBridge(teamId)
+
+  const registryMessagesDir = path.join(getEnsembleRegistryDir(), 'messages', teamId)
+  try {
+    fs.rmSync(registryMessagesDir, { recursive: true, force: true })
+  } catch (err) {
+    warnings.push(`Failed to remove message feed at ${registryMessagesDir}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  try {
+    fs.rmSync(collabRuntimeDir(teamId), { recursive: true, force: true })
+  } catch (err) {
+    warnings.push(`Failed to remove runtime artifacts at ${collabRuntimeDir(teamId)}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // The worktree base path is not persisted — disband reconstructs it from a
+  // surviving worktreePath. A run that never disbanded (died at forming/failed
+  // or was purged instead of disbanded) leaves worktrees we cannot locate.
+  // Report this honestly rather than guessing at a heuristic path.
+  if (team.agents.some(a => a.worktreePath)) {
+    warnings.push('This run had worktrees; leftover worktree directories could not be located and must be removed manually.')
+  }
+
+  deleteTeam(teamId)
+
+  return { data: { ok: true, warnings }, status: 200 }
 }

@@ -83,6 +83,22 @@ The same page then shows you everything: the team list, the live agent-to-agent
 transcript, a scrollback pane per agent straight off the PTY, and the server log. You can
 steer the team or a single agent from the box at the bottom, and disband from the header.
 
+**Clearing out old runs** is two-tier, so nothing irreversible is one click away:
+
+- **archive** hides a run behind a `[ show N archived ]` toggle. Nothing is deleted and
+  **restore** brings it straight back. Offered on any run that isn't currently active —
+  disband first, so no path can strand a live agent process.
+- **purge**, offered only on an already-archived run, erases it for good: the registry
+  record, *both* message stores, and the run's runtime artifacts. Its confirmation names
+  the run and counts the messages it is about to destroy.
+
+**The accounts tab** in the header reports which account each agent CLI is signed in as —
+`claude` and `codex` answer directly; `gemini`, `aider`, and `opencode` have no queryable
+auth status and say so rather than guess. It is strictly read-only: ensemble runs each
+CLI's own status subcommand, never touches credential files, and offers no sign-in or
+sign-out. Only an account label and a plan label ever leave the server — raw CLI output
+is discarded, so a token in it cannot reach the browser.
+
 ### Option B — headless, one command
 
 Starts the server if it isn't up, creates the team, and tails the conversation until the
@@ -217,13 +233,21 @@ authentication**. Don't expose it.
 | `POST` | `/api/ensemble/teams/:id` | Send a message (`{from, to, content}`) |
 | `DELETE` | `/api/ensemble/teams/:id` | Disband |
 | `POST` | `/api/ensemble/teams/:id/disband` | Disband (explicit) |
+| `POST` | `/api/ensemble/teams/:id/archive` | Archive / restore (`{archived: boolean}`) |
+| `POST` | `/api/ensemble/teams/:id/purge` | Erase permanently → `{ok, warnings[]}` |
 | `GET` | `/api/ensemble/teams/:id/feed?since=` | Message feed, incremental |
 | `GET` | `/api/ensemble/sessions/:name/pane?lines=N` | Rendered PTY scrollback (max 500 lines) |
 | `GET` | `/api/ensemble/logs?since=` | Server console stream |
+| `GET` | `/api/ensemble/accounts` | Read-only account status per agent CLI |
 | `GET` | `/` | The monitoring GUI |
 
 Requests carrying a disallowed `Origin` are rejected with 403; routes outside
 `/api/ensemble/` are rate limited.
+
+> **Why there is no sign-out route.** `/api/ensemble/accounts` is GET-only on purpose.
+> The API has no authentication, so a logout route would be a one-line unauthenticated
+> `curl` that ends a paid subscription session. ensemble reads account state; it never
+> changes it.
 
 > **Why the pane endpoint exists:** PTY sessions live in a module-level map *inside the
 > server process*. Any other process that constructs its own `PtyRuntime` gets a second,
@@ -305,6 +329,7 @@ lib/
   agent-spawner.ts        spawnLocalAgent / killLocalAgent
   agent-watchdog.ts       liveness: nudge → stall
   agent-config.ts         agents.json loader
+  account-status.ts       read-only "who is signed in" probe, field-allowlisted
   ensemble-registry.ts    team/agent state + message persistence
 services/
   ensemble-service.ts     business logic — runtime-agnostic by design
