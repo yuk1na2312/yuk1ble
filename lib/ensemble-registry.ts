@@ -137,6 +137,17 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
   })
 }
 
+export function deleteTeam(id: string): boolean {
+  return withTeamsLock(() => {
+    const teams = readTeamsFile()
+    const idx = teams.findIndex(t => t.id === id)
+    if (idx === -1) return false
+    teams.splice(idx, 1)
+    writeTeamsFile(teams)
+    return true
+  })
+}
+
 export function appendMessage(teamId: string, message: EnsembleMessage): void {
   const dir = path.join(MESSAGES_DIR, teamId)
   ensureDir(dir)
