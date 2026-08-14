@@ -20,7 +20,55 @@ installLogCapture()
 setRuntime(new PtyRuntime())
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const UI_FILE = path.join(__dirname, 'public', 'index.html')
+const PUBLIC_DIR = path.join(__dirname, 'public')
+
+// Static files served from public/: extension allowlist. The HTTP API has no
+// auth (loopback by design, see AGENTS.md), so anything not on this list —
+// server.ts, .env, agents.json — must never be reachable, even if it lives
+// inside public/.
+const STATIC_CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8',
+  '.woff2': 'font/woff2',
+}
+
+/**
+ * Resolves a request path to an absolute file path inside PUBLIC_DIR, or
+ * null if it must be refused. Pure path arithmetic — no filesystem access —
+ * so it's unit-testable without fixtures and shared by the request handler.
+ *
+ * `/` maps to index.html. Everything else is decoded, stripped of its
+ * leading slash(es), and resolved against PUBLIC_DIR with path.resolve —
+ * which on Windows treats `\` the same as `/`, so `..\` traversal is closed
+ * by the same check as `../`. The result must land inside PUBLIC_DIR
+ * (containment check) and carry an allowlisted extension, or it's rejected.
+ * Percent-decode failures (malformed `%` sequences) are caught, not thrown.
+ */
+export function resolveStaticFile(urlPath: string): string | null {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(urlPath)
+  } catch {
+    return null
+  }
+
+  const relative = decoded === '/' ? 'index.html' : decoded.replace(/^[/\\]+/, '')
+  const resolved = path.resolve(PUBLIC_DIR, relative)
+
+  const withinPublicDir = resolved === PUBLIC_DIR || resolved.startsWith(PUBLIC_DIR + path.sep)
+  if (!withinPublicDir) return null
+
+  const ext = path.extname(resolved).toLowerCase()
+  if (!(ext in STATIC_CONTENT_TYPES)) return null
+
+  return resolved
+}
+
+export function staticContentType(filePath: string): string {
+  return STATIC_CONTENT_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
+}
 
 const PORT = parseInt(process.env.ENSEMBLE_PORT || process.env.ORCHESTRA_PORT || '23000', 10)
 const HOST = process.env.ENSEMBLE_HOST || '127.0.0.1'
@@ -258,19 +306,26 @@ const server = http.createServer(async (req, res) => {
       return json(res, await getAccountStatuses(), 200, origin)
     }
 
-    // Monitoring UI
-    if ((path === '/' || path === '/index.html') && method === 'GET') {
-      try {
-        const html = fs.readFileSync(UI_FILE)
-        res.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store',
-        })
-        res.end(html)
-      } catch {
-        json(res, { error: 'UI not found' }, 404, origin)
+    // Monitoring UI + static assets: the whole public/ tree (index.html,
+    // app.css, js/*, vendor/*). Matched last among GET routes, after every
+    // /api/... route above, so it can never shadow the API. See
+    // resolveStaticFile() for the containment + extension-allowlist logic.
+    if (method === 'GET') {
+      const resolved = resolveStaticFile(path)
+      if (resolved) {
+        try {
+          if (!fs.statSync(resolved).isFile()) throw new Error('not a file')
+          const contents = fs.readFileSync(resolved)
+          res.writeHead(200, {
+            'Content-Type': staticContentType(resolved),
+            'Cache-Control': 'no-store',
+          })
+          res.end(contents)
+        } catch {
+          json(res, { error: 'Not found' }, 404, origin)
+        }
+        return
       }
-      return
     }
 
     json(res, { error: 'Not found' }, 404, origin)
