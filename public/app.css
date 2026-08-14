@@ -1,0 +1,932 @@
+/* ==========================================================================
+   Ensemble Monitor — stylesheet
+   Direction: refined terminal. Dark, monospace, high signal density, calm.
+   Owned exclusively by this file — markup lives in index.html + js/*, styling
+   lives here. Class/id contract: see docs handed to the build (CONTRACT.md).
+   ========================================================================== */
+
+/* ── 1. design tokens ──────────────────────────────────────────────────── */
+
+:root {
+  /* surfaces */
+  --bg: #0B0F17;          /* page ground */
+  --surface: #131A24;     /* panels, headers, composer */
+  --surface-2: #1A222E;   /* raised: inputs, hover, selected row */
+  --line: #1F2937;        /* default border */
+  --line-strong: #2C3644; /* emphasised border / divider */
+
+  /* text */
+  --text: #E6EDF3;   /* primary text */
+  --dim: #8B98A9;    /* secondary text (4.6:1 on --bg) */
+  --faint: #5C6675;  /* tertiary / timestamps */
+
+  /* signal colours */
+  --accent: #22C55E; /* running, live, ok */
+  --info: #6AA9FF;   /* codex / links */
+  --warn: #E3C07B;   /* forming, paused */
+  --err: #EF4444;    /* failed, purge, destructive */
+
+  /* spacing */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+
+  /* radii */
+  --r-1: 4px;
+  --r-2: 6px;
+  --r-3: 10px;
+
+  /* type scale */
+  --fs-1: 11px;
+  --fs-2: 12px;
+  --fs-3: 13px;
+  --fs-4: 15px;
+  --fs-5: 18px;
+
+  --mono: "Cascadia Code", "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+
+  /* motion — durations/easing reused by every transition in this file.
+     Transitions in this stylesheet only ever touch transform, opacity,
+     color, background-color, border-color and box-shadow: never width,
+     height, top, left or margin, so nothing here ever nudges a neighbour
+     or reflows layout mid-animation. */
+  --dur-fast: 150ms;
+  --dur: 190ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* entering */
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);  /* leaving */
+
+  /* shared shadows */
+  --shadow-raised: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+/* ── 2. reset + base ───────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+html {
+  /* Firefox dark scrollbars — must be set for the whole document so every
+     scrollable descendant inherits it. Left unstyled, a dark UI ships the
+     browser's stock light scrollbar, which reads as unfinished at a glance. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) var(--surface);
+}
+
+/* Chromium/WebKit dark scrollbars, 8px, applied universally so every
+   scrolling element in the app (columns, panes, textareas, selects) matches —
+   not just the ones we remembered to target individually. */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--r-1);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-3) / 1.5 var(--mono);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, p {
+  margin: 0;
+}
+
+a {
+  color: var(--info);
+}
+
+/* ── 3. layout ─────────────────────────────────────────────────────────── */
+
+header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  z-index: 10;
+}
+
+header h1 {
+  font-size: var(--fs-3);
+  font-weight: 600;
+  letter-spacing: .04em;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+header .spacer {
+  flex: 1;
+}
+
+header label {
+  color: var(--dim);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  cursor: pointer;
+  user-select: none;
+}
+
+header input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+/* The health dot + its label are a unit; inline-flex keeps the dot vertically
+   centred against the text rather than sitting on the baseline. */
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Secondary text anywhere in the chrome: the health label, the selected team's
+   title, the "live PTY" caption. These sit next to primary labels, so without a
+   dim colour they compete with them and the header reads as one flat row. */
+.hint {
+  color: var(--dim);
+  font-size: var(--fs-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Tab bar: #tabBar wraps #tabMonitor/#tabAccounts and hosts the sliding
+   #tabUnderline. Underline position/width is driven from JS (motion-kit
+   slideSelection); this file only supplies its resting visual style. */
+#tabBar {
+  position: relative;
+  display: inline-flex;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2);
+}
+
+#tabMonitor,
+#tabAccounts {
+  position: relative;
+  z-index: 1;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-1);
+  padding: var(--sp-1) var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-2);
+  color: var(--dim);
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+#tabMonitor:hover,
+#tabAccounts:hover {
+  color: var(--text);
+}
+
+#tabMonitor[aria-selected="true"],
+#tabAccounts[aria-selected="true"] {
+  color: var(--bg);
+}
+
+#tabUnderline {
+  position: absolute;
+  top: var(--sp-1);
+  /* left stays 0: slideSelection() computes the full horizontal offset from the
+     padding-box origin and applies it as translateX. An inset here would be added
+     on top of that and push the pill a padding's width off its tab. */
+  left: 0;
+  width: 0; /* until the first slideSelection() call sizes it to the active tab */
+  height: calc(100% - 2 * var(--sp-1));
+  background: var(--accent);
+  border-radius: var(--r-1);
+  will-change: transform, width;
+  z-index: 0;
+  pointer-events: none;
+}
+
+main#monitorView {
+  display: grid;
+  grid-template-columns: 265px minmax(320px, 1fr) minmax(360px, 1.2fr);
+  min-height: 0;
+}
+
+/* Trap: `main { display: grid }` and `.col { display: flex }` (below) both
+   set their own `display`, which ties with or outranks the plain [hidden]
+   UA rule. A compound id+attribute selector always wins the cascade, so the
+   tab switcher's `hidden` attribute actually hides these views. */
+#monitorView[hidden],
+#accountsView[hidden] {
+  display: none;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.col:last-child {
+  border-right: 0;
+}
+
+.col-hd {
+  margin: 0;
+  padding: 7px var(--sp-3);
+  font-size: var(--fs-1);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 0 0 auto;
+}
+
+.col-hd .spacer {
+  flex: 1;
+}
+
+.scroll {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  position: relative; /* anchors #selBar inside the teams column */
+}
+
+/* The server log, stacked under the agent panes in the third column. The fixed
+   basis is load-bearing, not cosmetic: both this and the panes list above it are
+   flex children wanting to grow, so without an explicit basis the log either
+   collapses to nothing or pushes the panes off-screen as lines accumulate.
+   min-height: 0 lets its inner .scroll actually scroll instead of expanding. */
+.drawer {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 34%;
+  min-height: 0;
+  border-top: 1px solid var(--line-strong);
+}
+
+/* ── 4. components ─────────────────────────────────────────────────────── */
+
+/* -- teams -- */
+
+.team {
+  position: relative;
+  padding: 9px var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.team:hover {
+  background: var(--surface-2);
+}
+
+.team.sel {
+  background: var(--surface-2);
+}
+
+.team.archived {
+  opacity: .55;
+}
+
+.team.archived:hover {
+  opacity: .85;
+}
+
+.team-name {
+  font-weight: 600;
+  font-size: var(--fs-3);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.team-meta {
+  color: var(--dim);
+  font-size: var(--fs-1);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.team-actions {
+  display: flex;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+
+.team-actions .btn {
+  padding: 2px var(--sp-2);
+  font-size: var(--fs-1);
+}
+
+/* " · 2 agents" trailing the status word. Deliberately quieter than .team-meta
+   so the status stays the thing the eye lands on. */
+.count-hint {
+  color: var(--faint);
+}
+
+/* The [ show N archived ] / [ hide archived ] divider between the two groups.
+   It is a div with role="button" + tabindex, so the cursor and hover feedback a
+   real <button> gives for free have to be spelled out. Its focus ring is not
+   here — the [tabindex]:focus-visible rule in the a11y section already covers it. */
+.archive-toggle {
+  padding: 6px var(--sp-3);
+  font-size: var(--fs-1);
+  color: var(--dim);
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  transition: color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+
+.archive-toggle:hover {
+  color: var(--accent);
+  background: var(--surface-2);
+}
+
+/* Selected-row indicator: a single shared bar (#selBar) that JS slides
+   between rows via motion-kit's slideSelection(), rather than a per-row
+   CSS accent border. Kept 2px wide, glowing, non-interactive. */
+#selBar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 0;
+  background: var(--accent);
+  box-shadow: 0 0 8px 0 rgba(34, 197, 94, .55);
+  will-change: transform, height;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* -- status + dots -- */
+
+.status {
+  font-size: var(--fs-1);
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+.status.active {
+  color: var(--accent);
+}
+
+.status.forming,
+.status.paused {
+  color: var(--warn);
+}
+
+.status.disbanded,
+.status.failed {
+  color: var(--err);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--dim);
+  transition: background-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+}
+
+.dot.up {
+  background: var(--accent);
+  box-shadow: 0 0 6px 0 rgba(34, 197, 94, .6);
+}
+
+.dot.down {
+  background: var(--err);
+  box-shadow: 0 0 6px 0 rgba(239, 68, 68, .55);
+}
+
+/* The same dot is reused on team rows, where JS applies the run status as the
+   modifier class instead of up/down. Colours mirror the .status rules above so
+   the dot and the word next to it never disagree; the base .dot grey is left as
+   the fallback for any status the server adds that this file has not seen yet. */
+.dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 6px 0 rgba(34, 197, 94, .6);
+}
+
+.dot.forming,
+.dot.paused {
+  background: var(--warn);
+  box-shadow: 0 0 6px 0 rgba(227, 192, 123, .5);
+}
+
+.dot.disbanded,
+.dot.failed {
+  background: var(--err);
+  box-shadow: 0 0 6px 0 rgba(239, 68, 68, .45);
+}
+
+/* -- transcript -- */
+
+.msg {
+  padding: 7px var(--sp-3) 7px 10px;
+  border-bottom: 1px solid var(--line);
+  border-left: 3px solid transparent; /* speaker colour, set inline per message */
+}
+
+.msg-hd {
+  display: flex;
+  gap: var(--sp-2);
+  font-size: var(--fs-1);
+  color: var(--dim);
+  align-items: baseline;
+}
+
+.msg-from {
+  font-weight: 600;
+}
+
+.msg.ensemble {
+  opacity: .82;
+}
+
+.msg-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 3px;
+  font-size: var(--fs-3);
+  color: var(--text);
+}
+
+/* -- composer -- */
+
+#composer {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+  flex: 0 0 auto;
+}
+
+#text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* -- agent panes -- */
+
+.pane {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.pane:last-child {
+  border-bottom: 0;
+}
+
+.pane-hd {
+  padding: 5px var(--sp-3);
+  background: var(--surface);
+  font-size: var(--fs-1);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.pane-hd .spacer {
+  flex: 1;
+}
+
+/* "codex · lead" beside the agent name in a pane header. Truncates rather than
+   wrapping — a pane header that grows a second line shoves the terminal body
+   down and makes every pane in the column a different height. */
+.pane-meta {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-body {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  white-space: pre;
+  font-family: var(--mono);
+  font-size: var(--fs-2);
+  line-height: 1.35;
+  color: #C3CCDA; /* dimmer than --text — raw terminal output, not UI chrome */
+  background: var(--bg);
+}
+
+/* Live PTY indicator. The dot (::before) and its glow both read currentColor, so
+   the single `color` here drives the whole thing. Default is --accent because
+   "live" is the common case; JS adds .off for a session that isn't there. The
+   breathing pulse is applied by JS (motion-kit's breathe()) via the `breathe`
+   keyframes defined below — this rule only supplies the resting glow. */
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-1);
+  color: var(--accent);
+}
+
+.live.off {
+  color: var(--err);
+}
+
+/* motion-kit's breathe() only toggles this class — without the rule below the
+   @keyframes at the bottom of the file are declared but never applied to
+   anything, and the live indicator sits inert. Kept as a CSS animation rather
+   than a JS one so the breathing costs no main-thread work while PTY panes are
+   repainting; the reduced-motion block at the top zeroes its duration. */
+.is-breathing {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+.live::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px 1px currentColor;
+  display: inline-block;
+  opacity: .85;
+}
+
+/* -- accounts -- */
+
+.account {
+  padding: 9px var(--sp-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.account-name {
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text);
+}
+
+.account-meta {
+  color: var(--dim);
+  font-size: var(--fs-1);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+/* -- new-team form -- */
+
+#newTeam {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 9px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+/* Trap: `display: flex` immediately above outranks the browser's plain
+   [hidden] rule, so the "+ new" toggle would leave this form permanently
+   open without the id+attribute override below. */
+#newTeam[hidden] {
+  display: none;
+}
+
+#newTeam textarea {
+  resize: vertical;
+}
+
+#newTeam .row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+#ntStatus {
+  color: var(--dim);
+  font-size: var(--fs-1);
+  overflow-wrap: anywhere;
+}
+
+#ntStatus.err {
+  color: var(--err);
+}
+
+#ntStatus.ok {
+  color: var(--accent);
+}
+
+/* -- server log -- */
+
+.logline {
+  padding: 1px var(--sp-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-2);
+  color: var(--dim);
+}
+
+.logline.warn {
+  color: var(--warn);
+}
+
+.logline.error {
+  color: var(--err);
+}
+
+/* The leading HH:MM:SS on a log line. Held back to --faint and to tabular
+   figures so the timestamps form a straight column the eye can skip past,
+   rather than a ragged edge that jitters as the digits change. */
+.logline .ts {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- generic empty state -- */
+
+.empty {
+  padding: 14px var(--sp-3);
+  color: var(--dim);
+  font-size: var(--fs-2);
+}
+
+/* -- reconcile bookkeeping markers (dom.js) -- */
+
+.is-placeholder {
+  /* No visual style of its own — append() skips it when computing where new
+     items start. It is always an .empty node in practice. */
+}
+
+.is-leaving {
+  /* Element mid-exit (motion-kit's exit()). Must keep occupying its box
+     while it animates out — never display:none / collapse here, that is
+     what would make surrounding rows jump. motion-kit removes it from the
+     DOM itself once the animation settles. */
+  pointer-events: none;
+}
+
+/* -- buttons -- */
+
+button,
+.btn {
+  appearance: none;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  padding: 5px var(--sp-2);
+  font: inherit;
+  font-size: var(--fs-2);
+  cursor: pointer;
+  box-shadow: var(--shadow-raised);
+  /* `transform` is deliberately NOT transitioned here. motion-kit's pressable()
+     drives scale via Motion, which writes an inline transform every frame; a CSS
+     transition on the same property makes the browser interpolate toward each of
+     those frames in turn, which reads as lag. The :active rule below is the
+     fallback for the reduced-motion / Motion-failed-to-load path, where an
+     instant snap is what we want anyway. */
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+button:hover:not(:disabled),
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:active:not(:disabled),
+.btn:active:not(:disabled) {
+  transform: scale(.97);
+}
+
+button:disabled,
+.btn:disabled,
+.btn[disabled] {
+  opacity: .45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.btn.danger:hover:not(:disabled) {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--dim);
+  box-shadow: none;
+}
+
+.btn.ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--line);
+  color: var(--accent);
+}
+
+/* -- inputs -- */
+
+input,
+select,
+textarea {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--r-1);
+  padding: 5px var(--sp-2);
+  font: inherit;
+  font-size: var(--fs-2);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--faint);
+}
+
+input:hover,
+select:hover,
+textarea:hover {
+  border-color: var(--line-strong);
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+/* -- skeleton loading -- */
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+}
+
+.skeleton-row {
+  height: 14px;
+  border-radius: var(--r-1);
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--line-strong) 50%, var(--surface-2) 75%);
+  background-size: 400% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* -- toasts -- */
+
+#toasts {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--sp-2);
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  max-width: 380px;
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--info);
+  border-radius: var(--r-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-2);
+  box-shadow: var(--shadow-pop);
+}
+
+.toast.err {
+  border-left-color: var(--err);
+}
+
+.toast.ok {
+  border-left-color: var(--accent);
+}
+
+.toast.info {
+  border-left-color: var(--info);
+}
+
+/* ── 5. state + interaction ───────────────────────────────────────────── */
+
+/* Visible focus ring on every interactive element — never remove `outline`
+   without this replacement. */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.team:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+
+a,
+button:not(:disabled),
+.btn:not(:disabled),
+.team,
+label,
+select,
+input[type="checkbox"] {
+  cursor: pointer;
+}
+
+input:not([type="checkbox"]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--info);
+  box-shadow: 0 0 0 2px rgba(106, 169, 255, .25);
+}
+
+/* ── keyframes ─────────────────────────────────────────────────────────── */
+
+@keyframes breathe {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: .45;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ── 6. reduced motion ─────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
