@@ -3,6 +3,7 @@ import {
   MOTION_OK, enter, exit, slideSelection, expand, pulse, breathe,
   crossfade, pressable, toast, skeleton,
 } from './motion-kit.js'
+import { attachSkillPicker } from './skill-picker.js'
 
 const $ = id => document.getElementById(id)
 
@@ -371,6 +372,9 @@ function setNtStatus(text, cls) {
 
 function select(id) {
   state.selected = id
+  // The open skill list belongs to the team we are leaving — see attachSkillPicker's
+  // return value for why the picker can't notice this on its own.
+  if (skillPicker) skillPicker.dismiss()
   for (const p of state.paneEls.values()) if (p.stopBreathe) p.stopBreathe()
   state.paneEls.clear()
 
@@ -407,14 +411,17 @@ function select(id) {
 // ── transcript ──────────────────────────────────────────────────────────────
 function createMessageEl(m) {
   const style = speakerStyle(m.from)
+  const isCommand = m.type === 'command'
   const from = h('span', { class: 'msg-from', text: `${style.icon} ${m.from}`, style: { color: style.color } })
   const to = h('span', { text: `→ ${m.to}` })
   const time = h('span', { text: timeOf(m.timestamp) })
   const hd = h('div', { class: 'msg-hd' }, [from, to, time])
   const body = h('div', { class: 'msg-body', text: m.content })
   return h('div', {
-    class: `msg${m.from === 'ensemble' ? ' ensemble' : ''}`,
-    style: { borderLeftColor: style.color },
+    class: `msg${m.from === 'ensemble' ? ' ensemble' : ''}${isCommand ? ' command' : ''}`,
+    // A fired skill command gets a fixed --info border regardless of speaker, so it
+    // reads as "a command" at a glance rather than blending into the sender's own colour.
+    style: { borderLeftColor: isCommand ? 'var(--info)' : style.color },
   }, [hd, body])
 }
 
@@ -441,17 +448,31 @@ async function pollFeed() {
   follow(box)
 }
 
+// A leading "/<token> args" fired at an individual agent (never "→ team", see the
+// design doc's non-goals) is a skill invocation, not a plain message — it takes the
+// dedicated skill route instead of the normal wrapped-message POST. apiAction (not
+// api) so a 400 unknown-token or 409 dead-session surfaces the server's own message
+// in the toast rather than a bare status code.
 $('composer').addEventListener('submit', async e => {
   e.preventDefault()
   const text = $('text').value.trim()
   if (!text || !state.selected) return
   $('send').disabled = true
   try {
-    await api(`/api/ensemble/teams/${encodeURIComponent(state.selected)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: $('to').value, from: 'user', content: text }),
-    })
+    const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text)
+    if (m && $('to').value !== 'team') {
+      await apiAction(`/api/ensemble/teams/${encodeURIComponent(state.selected)}/skill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent: $('to').value, token: m[1], args: m[2].trim() }),
+      })
+    } else {
+      await api(`/api/ensemble/teams/${encodeURIComponent(state.selected)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: $('to').value, from: 'user', content: text }),
+      })
+    }
     $('text').value = ''
     await pollFeed()
   } catch (err) {
@@ -685,6 +706,20 @@ async function tick() {
 $('refresh').addEventListener('click', () => {
   tick()
   if (state.activeTab === 'accounts') pollAccounts()
+})
+
+// ── skill picker ────────────────────────────────────────────────────────────
+// Triggers only on a leading "/" with an individual agent selected in #to — never
+// "→ team" (see design doc §2 non-goals: mixed-program teams can't share one token
+// namespace). getContext() is the picker's only window into app state; it otherwise
+// knows nothing about teams or delivery.
+const skillPicker = attachSkillPicker({
+  input: $('text'),
+  getContext: () => {
+    const to = $('to').value
+    if (!state.selected || to === 'team') return null
+    return { teamId: state.selected, agentName: to }
+  },
 })
 
 // ── bootstrap ───────────────────────────────────────────────────────────────

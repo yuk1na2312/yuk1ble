@@ -10,11 +10,13 @@ import { fileURLToPath } from 'url'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
   getTeamFeed, sendTeamMessage, disbandTeam, archiveTeam, purgeTeam,
+  invokeAgentSkill, resolveAgentProjectDir,
 } from './services/ensemble-service'
 import { getRuntime, setRuntime } from './lib/agent-runtime'
 import { PtyRuntime } from './lib/pty-runtime'
 import { installLogCapture, getLogEntries } from './lib/log-buffer'
 import { getAccountStatuses } from './lib/account-status'
+import { getSkillCatalog } from './lib/skill-catalog'
 
 installLogCapture()
 setRuntime(new PtyRuntime())
@@ -270,6 +272,29 @@ const server = http.createServer(async (req, res) => {
       return json(res, result.data, result.status, origin)
     }
 
+    // Fire an installed skill at one agent: /api/ensemble/teams/:id/skill
+    // Own regex, deliberately not folded into the bare POST /teams/:id
+    // handler above — that one is the plain-message path (sendTeamMessage)
+    // and stays exactly as it is. See design doc §5.2 / §6.
+    const skillMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/skill$/)
+    if (skillMatch && method === 'POST') {
+      let body: Record<string, unknown>
+      try {
+        body = JSON.parse(await readBody(req))
+      } catch {
+        return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
+      }
+      const token = body.token
+      if (typeof token !== 'string' || token.length === 0) {
+        return json(res, { error: 'token is required' }, 400, origin)
+      }
+      const agentName = typeof body.agent === 'string' ? body.agent : ''
+      const args = typeof body.args === 'string' ? body.args : ''
+      const result = await invokeAgentSkill(skillMatch[1], agentName, token, args)
+      if (result.error) return json(res, { error: result.error }, result.status, origin)
+      return json(res, result.data, result.status, origin)
+    }
+
     // Feed: /api/ensemble/teams/:id/feed
     const feedMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)
     if (feedMatch && method === 'GET') {
@@ -304,6 +329,24 @@ const server = http.createServer(async (req, res) => {
     // curl that ends a paid subscription session. See design doc "Non-goals".
     if (path === '/api/ensemble/accounts' && method === 'GET') {
       return json(res, await getAccountStatuses(), 200, origin)
+    }
+
+    // Installed-skill catalog for one agent: /api/ensemble/skills?team=<id>&agent=<name>
+    // team + agent only — NEVER a filesystem path. The project directory is
+    // derived server-side from registry state (the agent's worktreePath if
+    // set, else the team's workingDirectory) so a caller on the loopback
+    // interface can't turn this into an arbitrary-directory reader on an API
+    // that has no auth by design. See design doc §5 / §9.
+    if (path === '/api/ensemble/skills' && method === 'GET') {
+      const teamId = url.searchParams.get('team') || ''
+      const agentName = url.searchParams.get('agent') || ''
+      const teamResult = getEnsembleTeam(teamId)
+      if (teamResult.error) return json(res, { error: teamResult.error }, teamResult.status, origin)
+      const team = teamResult.data!.team
+      const agent = team.agents.find(a => a.name === agentName)
+      if (!agent) return json(res, { error: 'Agent not found' }, 404, origin)
+      const catalog = await getSkillCatalog(agent.program, resolveAgentProjectDir(team, agent))
+      return json(res, catalog, 200, origin)
     }
 
     // Monitoring UI + static assets: the whole public/ tree (index.html,

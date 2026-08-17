@@ -218,4 +218,45 @@ describe('resolveStaticFile() / staticContentType()', () => {
     expect(staticContentType(path.join(PUBLIC_DIR, 'icon.svg'))).toBe('image/svg+xml; charset=utf-8')
     expect(staticContentType(path.join(PUBLIC_DIR, 'fonts', 'foo.woff2'))).toBe('font/woff2')
   })
+
+  // ── GET /api/ensemble/skills vs. the static fallback ───────────────
+  //
+  // Design doc (2026-08-16-agent-skill-invocation-design.md) §5 / §11:
+  // "/api/ensemble/skills resolves before the static fallback and cannot be
+  // shadowed by a public/ file of the same path." The route itself lives in
+  // the request handler (not exported, matching the rest of this file's
+  // no-live-request convention — see the file header), so it is verified
+  // two ways that together prove the property without an HTTP round trip:
+  //
+  //   1. resolveStaticFile() — the exact gate the static fallback branch
+  //      uses — can never resolve this literal path to a file in the first
+  //      place, because it carries no allowlisted extension. No public/
+  //      file, however named, can ever be reached at this URL.
+  //   2. The route registration for '/api/ensemble/skills' appears in
+  //      server.ts's source strictly before the static-fallback branch
+  //      (the resolveStaticFile(path) call at the bottom of the handler).
+  //      Every branch above it in that sequential if-chain returns before
+  //      falling through, so source order here is control-flow order.
+  describe('GET /api/ensemble/skills vs. the static fallback', () => {
+    const serverSource = fs.readFileSync(path.join(REPO_ROOT, 'server.ts'), 'utf-8')
+
+    it('can never be resolved as a static file — the path has no allowlisted extension', () => {
+      expect(resolveStaticFile('/api/ensemble/skills')).toBeNull()
+    })
+
+    it('is registered in server.ts strictly before the static-file fallback', () => {
+      // Built by concatenation, not as one string literal, so this assertion
+      // cannot pass vacuously against a comment that merely mentions the
+      // route without server.ts actually registering it.
+      const routeNeedle = "'" + '/api/ensemble/skills' + "'"
+      const fallbackNeedle = 'resolveStaticFile' + '(path)'
+
+      const routeIndex = serverSource.indexOf(routeNeedle)
+      const fallbackIndex = serverSource.indexOf(fallbackNeedle)
+
+      expect(routeIndex).toBeGreaterThan(-1)
+      expect(fallbackIndex).toBeGreaterThan(-1)
+      expect(routeIndex).toBeLessThan(fallbackIndex)
+    })
+  })
 })

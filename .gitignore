@@ -1,6 +1,7 @@
-# Dependencies / build
+# Dependencies / build / docs
 node_modules/
 dist/
+docs
 
 # Environment & secrets
 .env
