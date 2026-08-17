@@ -113,6 +113,10 @@ interface RootSpec {
  * The program's own project/personal roots (§4.2). Plugin roots are
  * resolved separately, from the plugins manifest, in resolvePluginRoots().
  *
+ * `program` here is always the canonical agents.json key — getSkillCatalog()
+ * normalizes through resolveAgentProgram() before calling in. Never pass a
+ * raw registry program string to this function; the comparisons are exact.
+ *
  * `projectDir` is the agent's own working directory, resolved server-side
  * from team state by the caller (see design doc §9) — this module never
  * infers it and never accepts one shaped like user input.
@@ -451,15 +455,25 @@ async function buildCatalog(program: string, projectDir: string | undefined, inv
  * for an agent CLI that isn't installed.
  */
 export async function getSkillCatalog(program: string, projectDir?: string): Promise<SkillCatalog> {
-  const key = cacheKey(program, projectDir)
+  // Normalize FIRST, and branch on nothing but the normalized name below.
+  // `program` arrives verbatim from the registry, which stores whatever the
+  // team was created with — the GUI's new-team field defaults to
+  // "codex, claude code", so "claude code" is the string this module actually
+  // sees in production, not "claude". Resolving only the invocation flag here
+  // (as this did originally) while programRoots() compared the raw string with
+  // `===` produced a catalog that enabled the picker and then listed nothing.
+  const agentProgram = resolveAgentProgram(program)
+  const canonicalProgram = agentProgram.name
+
+  const key = cacheKey(canonicalProgram, projectDir)
   const cached = fromCache(key)
   if (cached) return cached
 
-  const invocation: SkillInvocation = resolveAgentProgram(program).skillInvocation ?? 'none'
+  const invocation: SkillInvocation = agentProgram.skillInvocation ?? 'none'
 
   let catalog: SkillCatalog
   try {
-    catalog = await buildCatalog(program, projectDir, invocation)
+    catalog = await buildCatalog(canonicalProgram, projectDir, invocation)
   } catch {
     // Defensive only: every fallible step above already has its own
     // try/catch. If something still throws, degrade to an empty catalog
@@ -468,7 +482,7 @@ export async function getSkillCatalog(program: string, projectDir?: string): Pro
     // (never the caught error's own text) so a filesystem error that
     // happens to embed an absolute path can never reach the caller.
     catalog = {
-      program,
+      program: canonicalProgram,
       invocation,
       skills: [],
       detail: 'skill catalog scan failed unexpectedly',

@@ -110,6 +110,31 @@ describe('skill-catalog', () => {
     ])
   })
 
+  /**
+   * The registry stores whatever program string the team was created with, and
+   * the GUI's new-team field defaults to "codex, claude code" — so the string
+   * that actually reaches this module in production is "claude code", not
+   * "claude". Every other consumer normalizes through resolveAgentProgram()
+   * before branching; this module must too, or it reports invocation:'slash'
+   * (which does go through resolveAgentProgram) alongside an empty skills list.
+   */
+  it('resolves a program alias like "claude code" to the same roots as "claude"', async () => {
+    const home = makeFixtureRoot('skillcat-alias-home-')
+    const projectDir = makeFixtureRoot('skillcat-alias-project-')
+    vi.spyOn(os, 'homedir').mockReturnValue(home)
+
+    writeSkill(path.join(projectDir, '.claude', 'skills'), 'aaa-project', skillMd())
+    writeSkill(path.join(home, '.claude', 'skills'), 'bbb-personal', skillMd())
+
+    const catalog = await getSkillCatalog('claude code', projectDir)
+
+    expect(catalog.invocation).toBe('slash')
+    expect(catalog.skills.map(s => `${s.source}:${s.token}`)).toEqual([
+      'project:aaa-project',
+      'personal:bbb-personal',
+    ])
+  })
+
   it('parses a single-line quoted description', async () => {
     const home = makeFixtureRoot('skillcat-home-')
     vi.spyOn(os, 'homedir').mockReturnValue(home)
