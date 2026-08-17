@@ -3,6 +3,20 @@
  * Loaded from agents.json at runtime; eliminates hardcoded agent-specific logic.
  */
 
+/**
+ * How a program is asked to run one of its installed skills, for the "/"
+ * picker in the monitoring GUI composer. See
+ * docs/superpowers/specs/2026-08-16-agent-skill-invocation-design.md §3.
+ *
+ * - 'slash'  — deliver `/token args` raw, as a standalone command. Confirmed
+ *              for claude.
+ * - 'prose'  — deliver `Use your "<name>" skill: <args>` through the normal
+ *              wrapped message path; no raw delivery.
+ * - 'none'   — the program has no skills convention; the picker is disabled
+ *              for it with a one-line reason.
+ */
+export type SkillInvocation = 'slash' | 'prose' | 'none'
+
 export interface AgentProgram {
   /** Unique identifier matching the key in agents.json (e.g. "codex", "claude") */
   name: string
@@ -27,6 +41,8 @@ export interface AgentProgram {
   color: string
   /** Single-char icon shown in monitor UI (e.g. "◆", "●", "▲", "★") */
   icon: string
+  /** How this program is asked to run one of its installed skills. Defaults to 'none' when absent. */
+  skillInvocation?: SkillInvocation
 }
 
 export interface AgentsConfig {

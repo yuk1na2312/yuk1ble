@@ -5,7 +5,7 @@
  */
 
 import { v4 as uuidv4, validate as isUuid } from 'uuid'
-import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
+import type { EnsembleTeam, EnsembleTeamAgent, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
 import {
   createTeam, getTeam, updateTeam, loadTeams, deleteTeam,
   appendMessage, getMessages,
@@ -19,7 +19,9 @@ import {
 } from '../lib/agent-spawner'
 import { isSelf, getHostById, getSelfHostId } from '../lib/hosts-config'
 import { getRuntime } from '../lib/agent-runtime'
+import type { AgentRuntime } from '../lib/agent-runtime'
 import { ensureSubmitted } from '../lib/paste-submit'
+import { getSkillCatalog } from '../lib/skill-catalog'
 import { resolveAgentProgram, resolveReadyMarkers } from '../lib/agent-config'
 import { matchReadyMarker, isQuiescentReady } from '../lib/pane-readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
@@ -1137,6 +1139,213 @@ export async function sendTeamMessage(
       })
     }
   }
+
+  return { data: { message }, status: 200 }
+}
+
+// ─── Skill invocation ───────────────────────────────────────────────────────
+//
+// A sibling to sendTeamMessage, not a modification of it. sendTeamMessage's
+// wrapper and its exact current behaviour are load-bearing for the collab
+// bridge and the watchdog; firing a raw slash command needs its own delivery
+// path because a slash command only parses when it arrives alone on its
+// line, which is precisely what sendTeamMessage's wrapper prevents.
+//
+// See docs/superpowers/specs/2026-08-16-agent-skill-invocation-design.md §6
+// for the full design (validation boundary, two-burst sequence, the
+// composer-confirmation hazard) and §7 for the transcript shape.
+
+/** Burst 2: deliberately short so it derails as little as possible of a
+ *  thought the agent may already be mid-way through when it lands. */
+const SKILL_NUDGE_TEXT = `→ When you're done, share what you did via team-say.`
+
+/**
+ * Confirms a just-submitted slash command actually left the agent's
+ * composer, retrying a bounded number of standalone Enters along the way.
+ *
+ * Why this exists (design doc §6.3 — the highest-risk part of this feature):
+ * typing "/" opens claude's own slash-command autocomplete. An Enter that
+ * arrives while that menu is still open can be consumed to *select* the
+ * highlighted entry rather than submit the line — silently firing a
+ * different skill than the one the user picked, or leaving the command
+ * stuck in the composer. ensureSubmitted() cannot catch this: it only reacts
+ * to the "[Pasted text/Content" marker, which a short one-line command never
+ * produces.
+ *
+ * Poll bound: capturePane every 750ms, up to 10s total, sending at most two
+ * extra standalone Enters along the way.
+ *
+ * PROVISIONAL pane signature: "the pane's last non-empty line still contains
+ * `/<token>`" is a best-effort heuristic, not a verified one — it has not
+ * been checked against a live capture of claude's slash-menu screen. The
+ * design doc (§6.3/§11) calls for that capture to be produced the same way
+ * tests/readiness-gates.test.ts fixtures were, and for this check to be
+ * replaced once it lands. Until then, false negatives/positives here are a
+ * known, called-out risk, not a bug to chase blind.
+ */
+export async function waitForCommandAccepted(
+  runtime: Pick<AgentRuntime, 'capturePane' | 'sendKeys'>,
+  sessionName: string,
+  token: string,
+): Promise<boolean> {
+  const POLL_INTERVAL_MS = 750
+  const POLL_TIMEOUT_MS = 10_000
+  const MAX_EXTRA_ENTERS = 2
+
+  const stillInComposer = (pane: string): boolean => {
+    let lastNonEmpty = ''
+    for (const line of pane.split(/\r?\n/)) {
+      if (line.trim().length > 0) lastNonEmpty = line
+    }
+    return lastNonEmpty.includes(`/${token}`)
+  }
+
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+  let entersSent = 0
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    let pane: string
+    try {
+      pane = await runtime.capturePane(sessionName, 80)
+    } catch {
+      // Session is gone; there is nothing left to confirm or retry into.
+      return false
+    }
+    if (!stillInComposer(pane)) return true
+    if (Date.now() >= deadline) return false
+    if (entersSent < MAX_EXTRA_ENTERS) {
+      await runtime.sendKeys(sessionName, 'Enter')
+      entersSent++
+    }
+    await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+  }
+}
+
+/**
+ * The directory a given agent's project-scoped skills are discovered from.
+ *
+ * Shared deliberately: `GET /api/ensemble/skills` lists the catalog and
+ * `invokeAgentSkill` validates a token against it, and those two MUST resolve
+ * the same root. When they were written separately they drifted — the route
+ * fell back to undefined (no project skills listed) while invocation fell back
+ * to process.cwd() (the server's own repo root), so a token the picker never
+ * showed could still be accepted. One function, one answer.
+ *
+ * The worktree path wins when the agent has one, because that is the directory
+ * the agent was actually spawned into. The process.cwd() tail matches
+ * createEnsembleTeam's own `request.workingDirectory || process.cwd()`, so a
+ * team created without an explicit directory resolves to the same place it ran.
+ */
+export function resolveAgentProjectDir(team: EnsembleTeam, agent: EnsembleTeamAgent): string {
+  return agent.worktreePath || team.workingDirectory || process.cwd()
+}
+
+export async function invokeAgentSkill(
+  teamId: string,
+  agentName: string,
+  token: string,
+  args: string,
+): Promise<ServiceResult<{ message: EnsembleMessage }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+
+  const agent = team.agents.find(a => a.name === agentName)
+  if (!agent) return { error: 'Agent not found', status: 404 }
+
+  // Server-side allowlist — the security boundary (design doc §6.1). The raw
+  // delivery path below removes the guarantee sendTeamMessage's wrapper
+  // normally gives: that whatever the user types can only ever land as a
+  // message body, never as something the agent's CLI parses. Checking the
+  // token against the agent's own live catalog before anything is delivered
+  // means this raw channel can only ever carry a slash command the user
+  // genuinely has installed — not a general "type anything into an agent's
+  // terminal" primitive on an unauthenticated, loopback-only API. `args` is
+  // free text and is deliberately NOT validated here.
+  //
+  const projectDir = resolveAgentProjectDir(team, agent)
+  const catalog = await getSkillCatalog(agent.program, projectDir)
+  if (catalog.invocation === 'none') {
+    return { error: catalog.detail || `skills are not supported for ${agent.program}`, status: 400 }
+  }
+  const skill = catalog.skills.find(s => s.token === token)
+  if (!skill) {
+    return { error: `unknown skill "${token}" for ${agentName}`, status: 400 }
+  }
+
+  const sessionName = `${team.name}-${agent.name}`
+  const runtime = getRuntime()
+  const paneAlive = await runtime.sessionExists(sessionName)
+  if (!paneAlive) return { error: 'agent session is not running', status: 409 }
+
+  const commandText = `/${token}${args ? ` ${args}` : ''}`
+
+  // `prose` programs never touch the raw channel at all — the skill
+  // invocation is expressed as ordinary prose through the *normal* wrapped
+  // path, with sendTeamMessage's own message-append and delivery behaviour
+  // completely untouched. Zero raw bursts.
+  if (catalog.invocation === 'prose') {
+    return sendTeamMessage(teamId, agentName, `Use your "${skill.name}" skill: ${args}`)
+  }
+
+  const isRemote = Boolean(agent.hostId) && !isSelf(agent.hostId)
+  const host = isRemote ? getHostById(agent.hostId) : undefined
+
+  const deliverBurst = async (text: string): Promise<void> => {
+    if (isRemote) {
+      if (host) await postRemoteSessionCommand(host.url, sessionName, text)
+      return
+    }
+    // Always pasteFromFile, never sendKeys, for the same reason
+    // sendTeamMessage does: typed input breaks on ?, !, `, $ and \ in
+    // PowerShell, and skill arguments are prose full of them.
+    const tmpFile = collabDeliveryFile(teamId, sessionName)
+    fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
+    fs.writeFileSync(tmpFile, text)
+    await runtime.pasteFromFile(sessionName, tmpFile)
+    await ensureSubmitted(runtime, sessionName)
+  }
+
+  try {
+    // Burst 1: the bare command, alone on its line.
+    await deliverBurst(commandText)
+
+    // Pane-based confirmation only makes sense against a session this
+    // process can actually capture. A remote agent's PTY lives inside
+    // another server process entirely (PTY state never leaves the process
+    // that owns it — see AGENTS.md), so there is nothing local to poll;
+    // treat remote delivery as accepted and proceed to the nudge.
+    const accepted = isRemote ? true : await waitForCommandAccepted(runtime, sessionName, token)
+
+    if (accepted) {
+      // Burst 2: the bus nudge. A nudge landing on top of a stuck composer
+      // would append prose to the unsent command and make the mess worse,
+      // so this only fires once burst 1 is confirmed clear of the composer.
+      await deliverBurst(SKILL_NUDGE_TEXT)
+    } else {
+      appendMessage(teamId, {
+        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        content: `⚠️ /${token} may not have been accepted by ${agentName} — the composer still showed the command after 10s. Skipped the follow-up nudge.`,
+        type: 'chat', timestamp: new Date().toISOString(),
+      })
+    }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    appendMessage(teamId, {
+      id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+      content: `❌ Delivery of /${token} to ${agentName} failed: ${reason}`,
+      type: 'chat', timestamp: new Date().toISOString(),
+    })
+  }
+
+  // Exactly one message reaches the feed for a fired skill. The bus nudge is
+  // delivery plumbing, not something the user said, and putting it in the
+  // transcript would make every skill invocation read as two turns.
+  const message: EnsembleMessage = {
+    id: uuidv4(), teamId, from: 'user', to: agentName,
+    content: commandText, type: 'command', timestamp: new Date().toISOString(),
+  }
+  appendMessage(teamId, message)
 
   return { data: { message }, status: 200 }
 }

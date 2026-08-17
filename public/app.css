@@ -495,6 +495,13 @@ main#monitorView {
   color: var(--text);
 }
 
+/* A fired skill command (type: 'command'). Border colour is set inline per message,
+   same as every other speaker colour (see createMessageEl in app.js) — this rule only
+   adds the monospace treatment that sets it apart from ordinary prose at a glance. */
+.msg.command .msg-body {
+  font-family: var(--mono);
+}
+
 /* -- composer -- */
 
 #composer {
@@ -509,6 +516,120 @@ main#monitorView {
 #text {
   flex: 1;
   min-width: 0;
+}
+
+/* -- skill picker -- */
+/* Mounted by public/js/skill-picker.js as the previous sibling of #composer, inside
+   #composerWrap (index.html), which is the positioned ancestor `bottom: 100%` resolves
+   against — that is what puts this directly above the composer row rather than at the
+   top of the whole transcript column. */
+
+.skill-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: var(--sp-1);
+  display: flex;
+  flex-direction: column;
+  max-height: 40vh;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-2);
+  box-shadow: var(--shadow-pop);
+  z-index: 20;
+  font-size: var(--fs-2);
+}
+
+.skill-picker[hidden] {
+  display: none;
+}
+
+/* invocation: 'none' — a one-line reason instead of a listbox. */
+.skill-picker[data-mode="hint"] {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--dim);
+}
+
+.skill-picker .skill-picker-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 6px var(--sp-3);
+  font-size: var(--fs-1);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-picker .skill-picker-header .count {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+/* The scrollable part — deliberately not the whole widget, so the header above stays
+   put and the sticky group headings below have a scroll container to stick within. */
+.skill-picker .skill-picker-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.skill-picker .skill-picker-group {
+  position: sticky;
+  top: 0;
+  padding: 3px var(--sp-3);
+  font-size: var(--fs-1);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.skill-picker .skill-picker-row {
+  padding: 5px var(--sp-3);
+  cursor: pointer;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: baseline;
+}
+
+.skill-picker .skill-picker-row.is-active,
+.skill-picker .skill-picker-row:hover {
+  background: var(--surface);
+}
+
+.skill-picker .skill-picker-token {
+  color: var(--info);
+  font-weight: 600;
+}
+
+.skill-picker .skill-picker-name {
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Description of the HIGHLIGHTED row only — on every row it turns 47 entries into an
+   unreadable wall (see design doc §8.2). Inserted/removed right after that one row. */
+.skill-picker .skill-picker-desc {
+  padding: 0 var(--sp-3) 6px calc(var(--sp-3) + var(--sp-2));
+  color: var(--dim);
+  font-size: var(--fs-1);
+  overflow-wrap: anywhere;
+}
+
+.skill-picker .skill-picker-empty,
+.skill-picker .skill-picker-footer {
+  padding: 6px var(--sp-3);
+  color: var(--faint);
+  font-size: var(--fs-1);
 }
 
 /* -- agent panes -- */

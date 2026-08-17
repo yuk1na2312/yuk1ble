@@ -64,11 +64,17 @@
       <button type="button" id="disband" class="btn danger" disabled>disband</button>
     </h2>
     <div class="scroll" id="feed"><div class="empty is-placeholder">Select a team.</div></div>
-    <form class="composer" id="composer">
-      <select id="to" aria-label="Send to"><option value="team">→ team</option></select>
-      <input id="text" placeholder="steer the team…" autocomplete="off" aria-label="Message" disabled>
-      <button type="submit" id="send" class="btn" disabled>send</button>
-    </form>
+    <!-- position:relative is the anchor public/js/skill-picker.js positions itself
+         against (absolute, bottom:100%) so it sits directly above the composer row
+         rather than at the top of the whole column. flex:0 0 auto mirrors what
+         #composer itself had before this wrapper existed. -->
+    <div id="composerWrap" style="position:relative;flex:0 0 auto">
+      <form class="composer" id="composer">
+        <select id="to" aria-label="Send to"><option value="team">→ team</option></select>
+        <input id="text" placeholder="steer the team…" autocomplete="off" aria-label="Message" disabled>
+        <button type="submit" id="send" class="btn" disabled>send</button>
+      </form>
+    </div>
   </section>
 
   <section class="col">

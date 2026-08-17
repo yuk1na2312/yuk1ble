@@ -6,7 +6,8 @@
     "readyMarker": "OpenAI Codex",
     "inputMethod": "pasteFromFile",
     "color": "blue",
-    "icon": "◆"
+    "icon": "◆",
+    "skillInvocation": "slash"
   },
   "claude": {
     "name": "claude",
@@ -16,7 +17,8 @@
     "readyMarkers": ["? for shortcuts"],
     "inputMethod": "sendKeys",
     "color": "green",
-    "icon": "●"
+    "icon": "●",
+    "skillInvocation": "slash"
   },
   "aider": {
     "name": "aider",
@@ -25,7 +27,8 @@
     "readyMarker": "❯",
     "inputMethod": "sendKeys",
     "color": "magenta",
-    "icon": "▲"
+    "icon": "▲",
+    "skillInvocation": "none"
   },
   "gemini": {
     "name": "gemini",
@@ -34,7 +37,8 @@
     "readyMarker": "Type your message",
     "inputMethod": "pasteFromFile",
     "color": "yellow",
-    "icon": "★"
+    "icon": "★",
+    "skillInvocation": "none"
   },
   "opencode": {
     "name": "opencode",
@@ -43,6 +47,7 @@
     "readyMarker": "Ask anything",
     "inputMethod": "sendKeys",
     "color": "cyan",
-    "icon": "▣"
+    "icon": "▣",
+    "skillInvocation": "none"
   }
 }
