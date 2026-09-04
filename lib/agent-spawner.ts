@@ -28,6 +28,13 @@ interface SpawnAgentOptions {
   program: string
   workingDirectory: string
   hostId?: string
+  /**
+   * Requested model, validated upstream by createEnsembleTeam before a
+   * single PTY is spawned (see lib/agent-config.ts isValidModel()). Absent
+   * means "let the CLI use its own configured default" — never a concrete
+   * fallback string.
+   */
+  model?: string
 }
 
 /** Compute a runtime session name from an agent name. */
@@ -82,9 +89,14 @@ export function toPowerShellCommandLine(parts: string[]): string {
   return `& ${parts.map(shellEscape).join(' ')}`
 }
 
-/** Resolve program name to a PowerShell-runnable CLI command, adding runtime flags for cwd handling */
-export function resolveStartCommand(program: string, cwd: string): string {
-  const parts = buildAgentCommandParts(program)
+/**
+ * Resolve program name to a PowerShell-runnable CLI command, adding runtime
+ * flags for cwd handling. `model` is optional and additive — omitting it
+ * produces byte-identical argv to before per-agent model selection existed
+ * (see buildAgentCommandParts in lib/agent-config.ts).
+ */
+export function resolveStartCommand(program: string, cwd: string, model?: string): string {
+  const parts = buildAgentCommandParts(program, model)
   const normalized = program.toLowerCase()
 
   if (
@@ -122,7 +134,7 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
   await new Promise(r => setTimeout(r, 300))
 
   // Start the AI program
-  const startCommand = resolveStartCommand(options.program, cwd)
+  const startCommand = resolveStartCommand(options.program, cwd, options.model)
 
   await runtime.sendKeys(sessionName, startCommand, { literal: true, enter: true })
 

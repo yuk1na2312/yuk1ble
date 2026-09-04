@@ -7,7 +7,12 @@
     "inputMethod": "pasteFromFile",
     "color": "blue",
     "icon": "◆",
-    "skillInvocation": "slash"
+    "skillInvocation": "slash",
+    "modelFlag": "--model",
+    "models": [
+      { "id": "gpt-5.6-sol", "label": "Sol" },
+      { "id": "gpt-5.6", "label": "GPT-5.6" }
+    ]
   },
   "claude": {
     "name": "claude",
@@ -18,7 +23,13 @@
     "inputMethod": "sendKeys",
     "color": "green",
     "icon": "●",
-    "skillInvocation": "slash"
+    "skillInvocation": "slash",
+    "modelFlag": "--model",
+    "models": [
+      { "id": "fable", "label": "Fable 5" },
+      { "id": "opus", "label": "Opus 5" },
+      { "id": "sonnet", "label": "Sonnet 5" }
+    ]
   },
   "aider": {
     "name": "aider",

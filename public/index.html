@@ -41,8 +41,15 @@
     <form id="newTeam" class="new-team-form" hidden>
       <label for="ntTask">Task</label>
       <textarea id="ntTask" rows="4" placeholder="Task for the team…"></textarea>
-      <label for="ntAgents">Agents</label>
-      <input id="ntAgents" value="codex, claude code" title="Comma-separated. The first is the lead.">
+      <label id="ntAgentsLabel">Agents</label>
+      <!-- Row repeater, built/maintained directly by app.js (createAgentRow/removeAgentRow) —
+           deliberately NOT reconcile()'d. reconcile() re-renders from server state every
+           poll tick; this form holds un-submitted user input, so a reconciliation pass
+           over it would discard a half-made selection. Row 0 is always the lead, every
+           row after it is a worker — order is the only lead indicator, there is no
+           separate control. -->
+      <div id="ntAgents" class="agent-rows" role="group" aria-labelledby="ntAgentsLabel"></div>
+      <button type="button" id="ntAddAgent" class="btn ghost add-agent">+ add agent</button>
       <label for="ntCwd">Working directory</label>
       <input id="ntCwd" placeholder="working directory (blank = server cwd)">
       <div class="row">

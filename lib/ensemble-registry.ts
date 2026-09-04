@@ -115,6 +115,9 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
         role: a.role || (i === 0 ? 'lead' : 'member'),
         hostId: a.hostId || '',
         status: 'spawning' as const,
+        // Spread-on-present, same idiom as workingDirectory below: absent
+        // means "no --model was passed", never an empty string (design doc §4).
+        ...(a.model ? { model: a.model } : {}),
       })),
       createdBy: getCreatedBy(),
       createdAt: new Date().toISOString(),

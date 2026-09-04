@@ -684,6 +684,48 @@ main#monitorView {
   background: var(--bg);
 }
 
+/* Per-pane message view (default) vs. raw PTY capture — toggled by JS via the
+   .raw-mode class on .pane (see togglePaneMode in app.js). Both the <pre> and
+   the message list are kept up to date underneath regardless of which is
+   visible; only display is gated here, so toggling never shows stale content. */
+.pane-msgs {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg);
+}
+
+.pane:not(.raw-mode) .pane-body {
+  display: none;
+}
+
+.pane.raw-mode .pane-msgs {
+  display: none;
+}
+
+/* Reuses the transcript's .msg bubble styling (see "-- transcript --" above) —
+   just tightened up for the narrower pane column. */
+.pane-msgs .msg {
+  padding: 5px var(--sp-2) 5px 8px;
+}
+
+.pane-msgs .msg-body {
+  font-size: var(--fs-2);
+}
+
+.pane-msgs .empty {
+  padding: 10px var(--sp-3);
+  font-size: var(--fs-1);
+}
+
+/* Compact toggle button that sits in the pane header next to the live dot —
+   button/.btn's default padding and font-size are sized for the composer and
+   the sidebar, both noticeably roomier than this row. */
+.pane-toggle {
+  padding: 2px 7px;
+  font-size: var(--fs-1);
+}
+
 /* Live PTY indicator. The dot (::before) and its glow both read currentColor, so
    the single `color` here drives the whole thing. Default is --accent because
    "live" is the common case; JS adds .off for a session that isn't there. The
@@ -769,6 +811,49 @@ main#monitorView {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+}
+
+/* Row repeater for the agents picker — see app.js createAgentRow(). Row 0 (lead) and
+   every row after it (worker) share this markup; only the .agent-role text differs. */
+.agent-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.agent-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Fixed width so "lead"/"worker" don't shove the dropdowns around as rows are
+   added/removed — mirrors .status's micro-label treatment. */
+.agent-row .agent-role {
+  flex: 0 0 52px;
+  color: var(--dim);
+  font-size: var(--fs-1);
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+
+/* Program and model dropdowns share the remaining width evenly. The model select
+   stays in the DOM (disabled, not hidden) when its program has no catalog entries,
+   so column alignment holds across program changes — see populateModelSelect(). */
+.agent-row .agent-program,
+.agent-row .agent-model {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.agent-row .agent-remove {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+}
+
+.add-agent {
+  align-self: flex-start;
 }
 
 #ntStatus {

@@ -17,6 +17,17 @@
  */
 export type SkillInvocation = 'slash' | 'prose' | 'none'
 
+/**
+ * One curated, allowlisted model choice for a program's GUI dropdown. See
+ * docs/superpowers/specs/2026-08-17-per-agent-model-selection-design.md §4.
+ */
+export interface AgentModel {
+  /** Value passed verbatim to the CLI's model flag. */
+  id: string
+  /** Human label for the GUI dropdown. */
+  label: string
+}
+
 export interface AgentProgram {
   /** Unique identifier matching the key in agents.json (e.g. "codex", "claude") */
   name: string
@@ -43,6 +54,19 @@ export interface AgentProgram {
   icon: string
   /** How this program is asked to run one of its installed skills. Defaults to 'none' when absent. */
   skillInvocation?: SkillInvocation
+  /**
+   * The flag name this program's model selection is passed under (e.g.
+   * "--model"). Per-program because it is not universal — a future program
+   * may spell it differently. Absent alongside `models` means this program
+   * gets no model picker.
+   */
+  modelFlag?: string
+  /**
+   * Curated allowlist of models this program's GUI dropdown may offer.
+   * Absent means this program gets no model picker — the same degradation
+   * path `skillInvocation: "none"` already takes.
+   */
+  models?: AgentModel[]
 }
 
 export interface AgentsConfig {

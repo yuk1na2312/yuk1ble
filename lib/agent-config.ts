@@ -6,7 +6,7 @@
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import type { AgentProgram, AgentsConfig } from '../types/agent-program'
+import type { AgentModel, AgentProgram, AgentsConfig } from '../types/agent-program'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -70,13 +70,50 @@ export function resolveReadyMarkers(program: string): string[] {
 }
 
 /**
+ * The curated model allowlist for a program's GUI dropdown, normalized
+ * through resolveAgentProgram() first — the registry stores raw creation
+ * strings like "claude code", and a lookup keyed on that raw string would
+ * silently find nothing (the exact defect fixed in f716378 for
+ * lib/skill-catalog.ts). Returns [] when the program has no `models` catalog
+ * (the same degradation path `skillInvocation: "none"` already takes), never
+ * throws.
+ */
+export function resolveAgentModels(program: string): AgentModel[] {
+  const agent = resolveAgentProgram(program)
+  return agent.models ?? []
+}
+
+/**
+ * Whether `model` is a member of `program`'s own curated catalog. An exact
+ * `id` match only — no substring, no case-folding beyond what
+ * resolveAgentProgram() already does to the program name. A program with no
+ * catalog rejects every model, including seemingly-plausible ones: absence of
+ * a catalog means "no picker for this program" (§4 of the design doc), not
+ * "anything goes".
+ */
+export function isValidModel(program: string, model: string): boolean {
+  return resolveAgentModels(program).some(m => m.id === model)
+}
+
+/**
  * Build the full CLI command for an agent as an array of unescaped tokens.
  *
  * Tokens are deliberately left unescaped: callers either hand them straight to
  * execFile/spawn, or quote them for a specific shell themselves (see
  * `toPowerShellCommandLine` in lib/agent-spawner.ts).
+ *
+ * `model` is optional and additive: omitting it (or the program having no
+ * `modelFlag`) appends nothing at all — "absent" means "let the CLI use its
+ * own configured default", a real first-class choice, not a synonym for any
+ * particular model (see design doc §4, §6).
+ *
+ * Precedence: if ENSEMBLE_AGENT_FLAGS already supplies this program's
+ * modelFlag, that env-var token wins and `model` is dropped rather than
+ * appended alongside it — the env var is the operator-level override and
+ * outranks a GUI selection, exactly like it already outranks agents.json's
+ * own default flags below.
  */
-export function buildAgentCommandParts(program: string): string[] {
+export function buildAgentCommandParts(program: string, model?: string): string[] {
   const agent = resolveAgentProgram(program)
   const envFlags = (process.env['ENSEMBLE_AGENT_FLAGS'] ?? '').trim()
 
@@ -100,5 +137,10 @@ export function buildAgentCommandParts(program: string): string[] {
     }
   }
 
-  return [agent.command, ...envTokens, ...defaultTokens]
+  const modelTokens: string[] = []
+  if (model && agent.modelFlag && !envFlagKeys.has(agent.modelFlag)) {
+    modelTokens.push(agent.modelFlag, model)
+  }
+
+  return [agent.command, ...envTokens, ...defaultTokens, ...modelTokens]
 }

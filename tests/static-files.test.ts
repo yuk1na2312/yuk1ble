@@ -49,6 +49,7 @@ describe('resolveStaticFile() / staticContentType()', () => {
 
   let resolveStaticFile: (urlPath: string) => string | null
   let staticContentType: (filePath: string) => string
+  let buildProgramsCatalog: () => Array<{ name: string; icon: string; color: string; models: { id: string; label: string }[] }>
 
   beforeAll(async () => {
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-static-data-'))
@@ -60,6 +61,7 @@ describe('resolveStaticFile() / staticContentType()', () => {
     const server = await import('../server')
     resolveStaticFile = server.resolveStaticFile
     staticContentType = server.staticContentType
+    buildProgramsCatalog = server.buildProgramsCatalog
   })
 
   afterAll(() => {
@@ -257,6 +259,66 @@ describe('resolveStaticFile() / staticContentType()', () => {
       expect(routeIndex).toBeGreaterThan(-1)
       expect(fallbackIndex).toBeGreaterThan(-1)
       expect(routeIndex).toBeLessThan(fallbackIndex)
+    })
+  })
+
+  // ── GET /api/ensemble/programs vs. the static fallback ─────────────
+  //
+  // Design doc (2026-08-17-per-agent-model-selection-design.md) §7: the
+  // program + model catalog for the GUI's new-team form must resolve before
+  // the static fallback, exactly like /api/ensemble/skills above. Same two-
+  // pronged proof, same reasoning: resolveStaticFile() can never match this
+  // literal path (no allowlisted extension), and the route's registration
+  // must appear in server.ts's source strictly before the static-fallback
+  // branch, since every branch above it in the if-chain returns before
+  // falling through.
+  describe('GET /api/ensemble/programs vs. the static fallback', () => {
+    const serverSource = fs.readFileSync(path.join(REPO_ROOT, 'server.ts'), 'utf-8')
+
+    it('can never be resolved as a static file — the path has no allowlisted extension', () => {
+      expect(resolveStaticFile('/api/ensemble/programs')).toBeNull()
+    })
+
+    it('is registered in server.ts strictly before the static-file fallback', () => {
+      const routeNeedle = "'" + '/api/ensemble/programs' + "'"
+      const fallbackNeedle = 'resolveStaticFile' + '(path)'
+
+      const routeIndex = serverSource.indexOf(routeNeedle)
+      const fallbackIndex = serverSource.indexOf(fallbackNeedle)
+
+      expect(routeIndex).toBeGreaterThan(-1)
+      expect(fallbackIndex).toBeGreaterThan(-1)
+      expect(routeIndex).toBeLessThan(fallbackIndex)
+    })
+  })
+
+  // ── buildProgramsCatalog() — the response body GET /api/ensemble/programs
+  // sends, against the real repo agents.json ─────────────────────────
+  describe('buildProgramsCatalog()', () => {
+    it('includes every program key from agents.json', () => {
+      const names = buildProgramsCatalog().map(p => p.name)
+      expect(names).toEqual(expect.arrayContaining(['codex', 'claude', 'aider', 'gemini', 'opencode']))
+    })
+
+    it('carries icon/color straight through for a catalog entry (codex)', () => {
+      const codex = buildProgramsCatalog().find(p => p.name === 'codex')
+      expect(codex).toMatchObject({ name: 'codex', icon: '◆', color: 'blue' })
+      expect(codex?.models).toEqual(
+        expect.arrayContaining([{ id: 'gpt-5.6-sol', label: 'Sol' }])
+      )
+    })
+
+    it('gives claude its curated model catalog', () => {
+      const claude = buildProgramsCatalog().find(p => p.name === 'claude')
+      expect(claude?.models).toEqual(
+        expect.arrayContaining([{ id: 'sonnet', label: 'Sonnet 5' }])
+      )
+    })
+
+    it('gives a program with no models key an empty array, not an absent field', () => {
+      const aider = buildProgramsCatalog().find(p => p.name === 'aider')
+      expect(aider?.models).toEqual([])
+      expect(Array.isArray(aider?.models)).toBe(true)
     })
   })
 })

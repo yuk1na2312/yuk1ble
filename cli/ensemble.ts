@@ -457,6 +457,38 @@ async function cmdSteer(teamId: string, message: string) {
   }
 }
 
+/**
+ * Parses one `--agents` entry into `{ program, model }` — the same shape
+ * the GUI posts to POST /api/ensemble/teams (design doc §9). This is the
+ * ONLY place the `program:model` suffix is parsed; server-side validation of
+ * the model against that program's catalog happens once, in
+ * createEnsembleTeam (services/ensemble-service.ts), not here.
+ *
+ * Splits on the LAST colon, not the first. No program name in agents.json
+ * contains a colon today, and every model id in the curated catalogs
+ * (agents.json) is colon-free too, so in practice this is unambiguous either
+ * way — but splitting from the right means a hypothetical future program
+ * name containing a colon still parses its trailing `:model` suffix
+ * correctly, whereas splitting on the first colon would not. An entry with
+ * no colon at all — including today's unsuffixed defaults like "codex" and
+ * "claude code" — passes through unchanged with `model` left undefined, so
+ * every existing invocation keeps producing byte-identical output.
+ */
+export function parseAgentSpec(spec: string): { program: string; model?: string } {
+  const trimmed = spec.trim()
+  const idx = trimmed.lastIndexOf(':')
+  if (idx === -1) return { program: trimmed }
+
+  const program = trimmed.slice(0, idx).trim()
+  const model = trimmed.slice(idx + 1).trim()
+  // An empty side (e.g. "codex:" or ":sonnet") is not a valid suffix split —
+  // treat the whole thing as a literal, unsuffixed program name rather than
+  // silently dropping half of what the user typed.
+  if (!program || !model) return { program: trimmed }
+
+  return { program, model }
+}
+
 async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: number) {
   const cwd = process.cwd()
 
@@ -480,15 +512,18 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     }
   }
 
-  // 2. Parse agents (default: codex + claude)
-  const agentNames = agentFlags
-    ? agentFlags.split(',').map(s => s.trim())
-    : ['codex', 'claude code']
-  const agents = agentNames.map((name, i) => ({
-    program: name,
+  // 2. Parse agents (default: codex + claude), each optionally suffixed
+  // `program:model` (e.g. "codex:gpt-5.6-sol").
+  const agentSpecs = agentFlags
+    ? agentFlags.split(',').map(s => parseAgentSpec(s))
+    : [{ program: 'codex' }, { program: 'claude code' }]
+  const agents = agentSpecs.map((spec, i) => ({
+    program: spec.program,
     role: i === 0 ? 'lead' : 'worker',
     hostId: 'local',
+    ...(spec.model ? { model: spec.model } : {}),
   }))
+  const agentLabels = agentSpecs.map(spec => spec.model ? `${spec.program}:${spec.model}` : spec.program)
 
   // 3. Create team
   const teamName = `run-${Date.now()}`
@@ -505,7 +540,7 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
 
   console.log(`\n  ${c.bold}${c.bWhite}◈ ensemble run${c.r}`)
   console.log(`  ${c.dim}${task.slice(0, 100)}${c.r}`)
-  console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId.slice(0, 8)}${c.r} created with ${agentNames.join(' + ')}`)
+  console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId.slice(0, 8)}${c.r} created with ${agentLabels.join(' + ')}`)
   console.log(`  ${c.dim}Timeout: ${timeoutSec}s${c.r}\n`)
 
   // 4. Tail messages until completion or timeout
@@ -555,9 +590,26 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
 
 // ─── Main ───
 
-const [cmd, ...args] = process.argv.slice(2)
+/**
+ * True only when this file is the script Node/tsx was launched with — never
+ * when it's `import`ed (e.g. by a test asserting on parseAgentSpec()).
+ * Guards the command dispatch below so importing this module for its
+ * exports never runs a CLI command, reads real process.argv as a command
+ * line, or calls process.exit() as a side effect of import.
+ */
+function isMainModule(): boolean {
+  const invoked = process.argv[1]
+  if (!invoked) return false
+  const resolvedInvoked = path.resolve(invoked)
+  return process.platform === 'win32'
+    ? resolvedInvoked.toLowerCase() === __cli_filename.toLowerCase()
+    : resolvedInvoked === __cli_filename
+}
 
-switch (cmd) {
+async function main(): Promise<void> {
+  const [cmd, ...args] = process.argv.slice(2)
+
+  switch (cmd) {
   case 'team-say':
     if (args.length < 4) {
       console.error('Usage: ensemble team-say <team-id> <from> <to> <message>')
@@ -671,13 +723,19 @@ switch (cmd) {
 
   ${c.bold}Examples:${c.r}
     ${c.dim}ensemble run "refactor auth module" --agents gemini,claude${c.r}
+    ${c.dim}ensemble run "refactor auth module" --agents codex:gpt-5.6-sol,claude:sonnet${c.r}
     ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
     ${c.dim}ensemble monitor --latest${c.r}
     ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
     ${c.dim}ensemble teams${c.r}
 `)
-    break
-  default:
-    console.log(`Unknown command: ${cmd}. Try: ensemble help`)
-    process.exit(1)
+      break
+    default:
+      console.log(`Unknown command: ${cmd}. Try: ensemble help`)
+      process.exit(1)
+  }
+}
+
+if (isMainModule()) {
+  await main()
 }

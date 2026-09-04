@@ -124,6 +124,27 @@ describe('resolveStartCommand', () => {
     const command = resolveStartCommand('claude', REPO_ROOT)
     expect(command).not.toContain('--add-dir')
   })
+
+  // Per-agent model selection (design doc §6): resolveStartCommand threads
+  // its optional 3rd argument through to buildAgentCommandParts(), which
+  // owns the actual flag construction (see tests/agent-models.test.ts for
+  // that). These two tests are the spawner-level regression: a caller that
+  // omits the model must get byte-identical output to before this feature
+  // existed, and a caller that supplies one must see it land in the command
+  // line the same way every other flag does — quoted, as two tokens.
+  it('appends the model flag when a model is supplied', () => {
+    const command = resolveStartCommand('claude', REPO_ROOT, 'sonnet')
+    expect(command).toContain("'--model' 'sonnet'")
+  })
+
+  it('omits the model flag entirely when no model is supplied — byte-identical to before this feature existed', () => {
+    const withoutModel = resolveStartCommand('claude', REPO_ROOT)
+    expect(withoutModel).not.toContain('--model')
+    // Explicit 2-arg call site (as every pre-existing caller uses) must match
+    // the 3-arg call site with model omitted — proves the new parameter is
+    // purely additive, not a signature change that alters old behavior.
+    expect(withoutModel).toBe(resolveStartCommand('claude', REPO_ROOT, undefined))
+  })
 })
 
 describe('shellEscape', () => {

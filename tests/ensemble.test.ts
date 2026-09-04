@@ -985,3 +985,199 @@ describe('CreateTeamRequest staged types', () => {
     expect(request.staged).toBeUndefined()
   })
 })
+
+// ─────────────────────────────────────────────────────
+// 9. createEnsembleTeam — per-agent model validation (design doc §5, the
+// load-bearing part of per-agent model selection)
+// ─────────────────────────────────────────────────────
+describe('createEnsembleTeam — per-agent model validation', () => {
+  let tempRoot: string
+
+  beforeEach(() => {
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-model-validate-'))
+    vi.resetModules()
+    vi.restoreAllMocks()
+    // Earlier describe blocks in this file (e.g. "worktree isolation
+    // lifecycle") vi.doMock('../lib/agent-config') with a stub that only
+    // provides resolveAgentProgram/resolveReadyMarkers, and vi.doMock
+    // registrations outlive vi.resetModules() — they only clear on an
+    // explicit vi.doUnmock(). This suite needs the REAL isValidModel() /
+    // resolveAgentModels(), so make sure no earlier mock is still active.
+    vi.doUnmock('../lib/agent-config')
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+    vi.restoreAllMocks()
+    fs.rmSync(tempRoot, { recursive: true, force: true })
+  })
+
+  // lib/agent-config is deliberately NOT mocked in this suite: the whole
+  // point is to exercise the real isValidModel()/resolveAgentModels() against
+  // the real repo agents.json, which is the exact allowlist boundary being
+  // tested. Every team here has a single agent, so Phase 2 (readiness wait +
+  // prompt injection, which needs >= 2 active agents) never runs and nothing
+  // here depends on agent-config's other exports (resolveAgentProgram,
+  // resolveReadyMarkers).
+  async function setupModelValidationService(team: EnsembleTeam) {
+    const appendedMessages: EnsembleMessage[] = []
+    const createTeam = vi.fn(() => team)
+    const getTeam = vi.fn(() => team)
+    const updateTeam = vi.fn((_id: string, updates: Partial<EnsembleTeam>) => ({ ...team, ...updates }))
+    const appendMessage = vi.fn((_id: string, message: EnsembleMessage) => appendedMessages.push(message))
+    const spawnLocalAgent = vi.fn(async ({ name, program, workingDirectory, hostId, model }) => ({
+      id: `${name}-id`,
+      name,
+      program,
+      sessionName: name,
+      workingDirectory,
+      hostId,
+      model,
+    }))
+
+    vi.doMock('../lib/ensemble-registry', () => ({
+      createTeam,
+      getTeam,
+      updateTeam,
+      loadTeams: vi.fn(() => []),
+      appendMessage,
+      getMessages: vi.fn(() => []),
+    }))
+    vi.doMock('../lib/agent-spawner', () => ({
+      spawnLocalAgent,
+      killLocalAgent: vi.fn(async () => {}),
+      spawnRemoteAgent: vi.fn(async () => ({ id: 'remote-agent-id' })),
+      killRemoteAgent: vi.fn(async () => {}),
+      postRemoteSessionCommand: vi.fn(),
+      isRemoteSessionReady: vi.fn(async () => true),
+      getAgentTokenUsage: vi.fn(async () => 'unknown'),
+    }))
+    vi.doMock('../lib/hosts-config', () => ({
+      isSelf: vi.fn(() => true),
+      getHostById: vi.fn(() => ({ id: 'local', url: 'http://local.test' })),
+      getSelfHostId: vi.fn(() => 'local'),
+    }))
+    vi.doMock('../lib/agent-runtime', () => ({
+      getRuntime: vi.fn(() => ({
+        capturePane: vi.fn(async () => '>'),
+        sendKeys: vi.fn(async () => {}),
+        pasteFromFile: vi.fn(async () => {}),
+        sessionExists: vi.fn(async () => true),
+      })),
+    }))
+    vi.doMock('../lib/collab-paths', () => ({
+      ensureCollabDirs: vi.fn(),
+      collabPromptFile: vi.fn((teamId: string, agentName: string) => path.join(tempRoot, `${teamId}-${agentName}.prompt.txt`)),
+      collabDeliveryFile: vi.fn((teamId: string, sessionName: string) => path.join(tempRoot, `${teamId}-${sessionName}.delivery.txt`)),
+      collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
+      collabRuntimeDir: vi.fn((teamId: string) => path.join(tempRoot, teamId)),
+      collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),
+      collabBridgePosted: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.posted`)),
+      collabBridgeResult: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.result`)),
+    }))
+
+    const mod = await import('../services/ensemble-service')
+    return {
+      mod,
+      appendedMessages,
+      mocks: { createTeam, getTeam, updateTeam, appendMessage, spawnLocalAgent },
+    }
+  }
+
+  it('rejects an unknown model with 400 and spawns nothing — not merely the status code', async () => {
+    const team = makeTeam({
+      id: 'team-model-reject',
+      name: 'team-model-reject',
+      agents: [
+        { agentId: '', name: 'codex-1', program: 'codex', role: 'lead', hostId: '', status: 'spawning' },
+      ],
+    })
+    const { mod, mocks, appendedMessages } = await setupModelValidationService(team)
+
+    const result = await mod.createEnsembleTeam({
+      name: team.name,
+      description: team.description,
+      agents: [{ program: 'codex', model: 'not-a-real-model' }],
+      workingDirectory: '/repo',
+    })
+
+    expect(result.status).toBe(400)
+    // Names the offending program, the rejected model, and the accepted ids.
+    expect(result.error).toContain('codex')
+    expect(result.error).toContain('not-a-real-model')
+    expect(result.error).toContain('gpt-5.6-sol')
+
+    // Nothing was persisted, spawned, or announced — the load-bearing
+    // assertion. A test that only checked result.status would still pass if
+    // a PTY leaked before the validation error was returned.
+    expect(mocks.createTeam).not.toHaveBeenCalled()
+    expect(mocks.spawnLocalAgent).not.toHaveBeenCalled()
+    expect(mocks.appendMessage).not.toHaveBeenCalled()
+    expect(appendedMessages).toHaveLength(0)
+  })
+
+  it('rejects a model for a program with no catalog at all', async () => {
+    const team = makeTeam({
+      id: 'team-model-no-catalog',
+      name: 'team-model-no-catalog',
+      agents: [
+        { agentId: '', name: 'aider-1', program: 'aider', role: 'lead', hostId: '', status: 'spawning' },
+      ],
+    })
+    const { mod, mocks } = await setupModelValidationService(team)
+
+    const result = await mod.createEnsembleTeam({
+      name: team.name,
+      description: team.description,
+      agents: [{ program: 'aider', model: 'anything' }],
+      workingDirectory: '/repo',
+    })
+
+    expect(result.status).toBe(400)
+    expect(mocks.spawnLocalAgent).not.toHaveBeenCalled()
+  })
+
+  it('accepts a valid model and threads it through to spawnLocalAgent', async () => {
+    const team = makeTeam({
+      id: 'team-model-valid',
+      name: 'team-model-valid',
+      agents: [
+        { agentId: '', name: 'codex-1', program: 'codex', role: 'lead', hostId: '', status: 'spawning', model: 'gpt-5.6-sol' },
+      ],
+    })
+    const { mod, mocks } = await setupModelValidationService(team)
+
+    const result = await mod.createEnsembleTeam({
+      name: team.name,
+      description: team.description,
+      agents: [{ program: 'codex', model: 'gpt-5.6-sol' }],
+      workingDirectory: '/repo',
+    })
+
+    expect(result.status).toBe(201)
+    expect(mocks.spawnLocalAgent).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.6-sol' }))
+  })
+
+  it('a team created with no model spawns with model left undefined — unchanged from before this feature', async () => {
+    const team = makeTeam({
+      id: 'team-model-none',
+      name: 'team-model-none',
+      agents: [
+        { agentId: '', name: 'codex-1', program: 'codex', role: 'lead', hostId: '', status: 'spawning' },
+      ],
+    })
+    const { mod, mocks } = await setupModelValidationService(team)
+
+    const result = await mod.createEnsembleTeam({
+      name: team.name,
+      description: team.description,
+      agents: [{ program: 'codex' }],
+      workingDirectory: '/repo',
+    })
+
+    expect(result.status).toBe(201)
+    expect(mocks.spawnLocalAgent).toHaveBeenCalledTimes(1)
+    const spawnCall = mocks.spawnLocalAgent.mock.calls[0][0] as { model?: string }
+    expect(spawnCall.model).toBeUndefined()
+  })
+})

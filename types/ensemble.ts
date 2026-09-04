@@ -46,6 +46,15 @@ export interface EnsembleTeamAgent {
   stalledAt?: string
   worktreePath?: string
   worktreeBranch?: string
+  /**
+   * The model requested for this agent at team creation, validated against
+   * that program's catalog in agents.json (see lib/agent-config.ts
+   * isValidModel()). Absent means "no --model was passed; the CLI used its
+   * own configured default" — a real, distinct state, never defaulted to a
+   * concrete model string. See
+   * docs/superpowers/specs/2026-08-17-per-agent-model-selection-design.md §4.
+   */
+  model?: string
 }
 
 export interface EnsembleTeamResult {
@@ -74,6 +83,13 @@ export interface CreateTeamRequest {
     program: string
     role?: string
     hostId?: string
+    /**
+     * Requested at creation only (see design doc §2 — no mid-run switching).
+     * Absent means "let the CLI use its own configured default" — never
+     * default this to a concrete model string, and never persist an empty
+     * string here or in EnsembleTeamAgent.model.
+     */
+    model?: string
   }>
   feedMode?: 'silent' | 'summary' | 'live'
   workingDirectory?: string

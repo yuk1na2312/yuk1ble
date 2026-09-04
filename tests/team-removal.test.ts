@@ -250,3 +250,83 @@ describe('archiveTeam() / purgeTeam()', () => {
     expect(registry.getTeam(maliciousId)).toBeDefined()
   })
 })
+
+/**
+ * createTeam() — per-agent `model` persistence (design doc §4).
+ *
+ * Same real-registry, real-fs setup as archiveTeam()/purgeTeam() above:
+ * ENSEMBLE_DATA_DIR points at a fresh mkdtemp root per test, nothing mocked,
+ * so this actually round-trips through teams.json on disk. Mirrors
+ * `workingDirectory`'s spread-on-present idiom exactly (lib/ensemble-registry.ts
+ * createTeam()) — absent means "no --model was passed", never a persisted
+ * empty string.
+ */
+describe('createTeam() — model persistence', () => {
+  const originalDataDir = process.env.ENSEMBLE_DATA_DIR
+  const originalRuntimeDir = process.env.ENSEMBLE_RUNTIME_DIR
+  let dataDir: string
+  let runtimeDir: string
+
+  beforeEach(() => {
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-model-persist-data-'))
+    runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-model-persist-runtime-'))
+    process.env.ENSEMBLE_DATA_DIR = dataDir
+    process.env.ENSEMBLE_RUNTIME_DIR = runtimeDir
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+    if (originalDataDir === undefined) delete process.env.ENSEMBLE_DATA_DIR
+    else process.env.ENSEMBLE_DATA_DIR = originalDataDir
+    if (originalRuntimeDir === undefined) delete process.env.ENSEMBLE_RUNTIME_DIR
+    else process.env.ENSEMBLE_RUNTIME_DIR = originalRuntimeDir
+    fs.rmSync(dataDir, { recursive: true, force: true })
+    fs.rmSync(runtimeDir, { recursive: true, force: true })
+  })
+
+  it('persists model when the request supplies one', async () => {
+    const registry = await import('../lib/ensemble-registry')
+
+    const team = registry.createTeam({
+      name: 'model-persist-test',
+      description: 'test',
+      agents: [{ program: 'codex', model: 'gpt-5.6-sol' }],
+    })
+
+    expect(team.agents[0].model).toBe('gpt-5.6-sol')
+    // Round-trips through the actual teams.json file, not just the in-memory
+    // return value.
+    expect(registry.getTeam(team.id)?.agents[0].model).toBe('gpt-5.6-sol')
+  })
+
+  it('leaves model entirely absent — never defaulted, never an empty string — when the request omits it', async () => {
+    const registry = await import('../lib/ensemble-registry')
+
+    const team = registry.createTeam({
+      name: 'model-absent-test',
+      description: 'test',
+      agents: [{ program: 'codex' }],
+    })
+
+    expect(team.agents[0].model).toBeUndefined()
+    expect('model' in team.agents[0]).toBe(false)
+    expect(registry.getTeam(team.id)?.agents[0].model).toBeUndefined()
+  })
+
+  it('handles a mixed multi-agent team independently per agent', async () => {
+    const registry = await import('../lib/ensemble-registry')
+
+    const team = registry.createTeam({
+      name: 'model-mixed-test',
+      description: 'test',
+      agents: [
+        { program: 'codex', model: 'gpt-5.6-sol' },
+        { program: 'claude' },
+      ],
+    })
+
+    expect(team.agents[0].model).toBe('gpt-5.6-sol')
+    expect(team.agents[1].model).toBeUndefined()
+  })
+})

@@ -11,7 +11,12 @@ const state = {
   teams: [],
   selected: null,
   logSeq: 0,
-  paneEls: new Map(),        // session -> { wrap, pre, live, session, stopBreathe }
+  // session -> { wrap, pre, msgs, live, toggleBtn, session, agentName, mode, stopBreathe }
+  // mode is 'messages' (default) or 'raw' — per-pane, independent of every other pane.
+  paneEls: new Map(),
+  lastMessages: [],          // most recent /feed result, cached so pollPanes() can seed a
+                              // freshly (re)created pane's message view without waiting for
+                              // the next pollFeed() tick — see renderPaneMessages().
   archivedExpanded: false,   // persisted here, not the DOM — #teams is reconciled every tick
   activeTab: 'monitor',
   accountsTimer: null,
@@ -302,6 +307,124 @@ async function purgeTeam(team) {
   await pollTeams()
 }
 
+// ── program catalog (new-team form) ─────────────────────────────────────────
+// GET /api/ensemble/programs is owned by another agent and may not exist yet, or
+// may 404/500 on an older server. Either way this degrades to a hardcoded
+// codex/claude list with no models — an empty `models` array is itself a safe
+// fallback, since populateModelSelect() then disables the model dropdown and no
+// `model` field is ever sent, which is always a valid request.
+const FALLBACK_PROGRAMS = [
+  { name: 'codex', icon: '◆', color: 'blue', models: [] },
+  { name: 'claude', icon: '●', color: 'green', models: [] },
+]
+let programsCatalog = null
+let programsWarned = false
+
+async function loadPrograms() {
+  if (programsCatalog) return programsCatalog
+  try {
+    const list = await api('/api/ensemble/programs')
+    programsCatalog = Array.isArray(list) && list.length ? list : FALLBACK_PROGRAMS
+  } catch (err) {
+    if (!programsWarned) {
+      programsWarned = true
+      console.warn('[monitor] GET /api/ensemble/programs unavailable, using fallback program list:', err.message)
+    }
+    programsCatalog = FALLBACK_PROGRAMS
+  }
+  return programsCatalog
+}
+
+function programEntry(name) {
+  const list = programsCatalog || FALLBACK_PROGRAMS
+  return list.find(p => p.name === name) || list[0]
+}
+
+// ── agent rows (new-team form) ──────────────────────────────────────────────
+// Built and mutated directly — never handed to reconcile(). reconcile() only
+// runs over #teams and the accounts table, both re-rendered from server state
+// every poll tick; this form holds un-submitted user input that a reconciliation
+// pass would clobber. See the comment on #ntAgents in index.html.
+const DEFAULT_MODEL_VALUE = '' // sentinel: omit the `model` key entirely
+let agentRowSeq = 0
+const agentRows = [] // [{ id, el, roleEl, programSel, modelSel, removeBtn }]
+
+const agentRoleLabel = index => (index === 0 ? 'lead' : 'worker')
+
+// The model dropdown's first option is always "default (CLI config)" (value ""),
+// a first-class choice that omits --model so an agent's own config (e.g.
+// ~/.codex/config.toml's model + model_reasoning_effort) is left alone. A program
+// with no models gets a *disabled* select, not a hidden one, so row height and
+// column alignment stay put when the program dropdown changes.
+function populateModelSelect(sel, programName) {
+  const entry = programEntry(programName)
+  const models = (entry && entry.models) || []
+  clear(sel)
+  sel.append(h('option', { value: DEFAULT_MODEL_VALUE, text: 'default (CLI config)' }))
+  for (const m of models) sel.append(h('option', { value: m.id, text: m.label }))
+  sel.value = DEFAULT_MODEL_VALUE
+  sel.disabled = models.length === 0
+}
+
+function refreshAgentRoleLabels() {
+  agentRows.forEach((row, i) => setText(row.roleEl, agentRoleLabel(i)))
+}
+
+// The "need at least 2 agents" rule lives here, not as a submit-time error: once
+// only two rows remain, every remove button disables so the count can't drop
+// below 2 in the first place.
+function refreshAgentRemoveButtons() {
+  const disable = agentRows.length <= 2
+  for (const row of agentRows) row.removeBtn.disabled = disable
+}
+
+function createAgentRow(programName) {
+  const id = ++agentRowSeq
+  const roleEl = h('span', { class: 'agent-role' })
+  const programSel = h('select', { class: 'agent-program', 'aria-label': 'Program' })
+  const modelSel = h('select', { class: 'agent-model', 'aria-label': 'Model' })
+  const removeBtn = btn('btn ghost agent-remove', '×', () => removeAgentRow(id), { 'aria-label': 'Remove agent' })
+
+  for (const p of (programsCatalog || FALLBACK_PROGRAMS)) {
+    programSel.append(h('option', { value: p.name, text: p.icon ? `${p.icon} ${p.name}` : p.name }))
+  }
+  programSel.value = programName
+  populateModelSelect(modelSel, programSel.value)
+  programSel.addEventListener('change', () => populateModelSelect(modelSel, programSel.value))
+
+  const el = h('div', { class: 'agent-row' }, [roleEl, programSel, modelSel, removeBtn])
+  const row = { id, el, roleEl, programSel, modelSel, removeBtn }
+  agentRows.push(row)
+  $('ntAgents').append(el)
+  refreshAgentRoleLabels()
+  refreshAgentRemoveButtons()
+  return row
+}
+
+function removeAgentRow(id) {
+  if (agentRows.length <= 2) return // belt-and-suspenders: the button is disabled too
+  const idx = agentRows.findIndex(r => r.id === id)
+  if (idx < 0) return
+  agentRows.splice(idx, 1)[0].el.remove()
+  refreshAgentRoleLabels()
+  refreshAgentRemoveButtons()
+}
+
+async function initAgentRows() {
+  await loadPrograms()
+  clear($('ntAgents'))
+  agentRows.length = 0
+  const seedNames = programsCatalog.length >= 2
+    ? [programsCatalog[0].name, programsCatalog[1].name]
+    : [programEntry('codex').name, programEntry('claude').name]
+  for (const name of seedNames) createAgentRow(name)
+}
+
+$('ntAddAgent').addEventListener('click', () => {
+  const fallbackName = (programsCatalog && programsCatalog[0] && programsCatalog[0].name) || 'codex'
+  createAgentRow(fallbackName)
+})
+
 // ── create a team ───────────────────────────────────────────────────────────
 let newTeamOpen = false
 $('toggleNew').addEventListener('click', () => {
@@ -320,20 +443,21 @@ $('newTeam').addEventListener('submit', e => {
   const task = $('ntTask').value.trim()
   if (!task) return
 
-  const programs = $('ntAgents').value.split(',').map(s => s.trim()).filter(Boolean)
-  if (programs.length < 2) {
-    setNtStatus('Need at least 2 agents — they have to talk to each other.', 'err')
-    return
-  }
-
+  // Row 0 is always the lead, every row after it is a worker — order is the only
+  // lead indicator (see the design doc's rejection of a separate lead control).
+  // The "at least 2 agents" rule is enforced earlier, by disabling remove buttons
+  // at 2 rows (refreshAgentRemoveButtons), not here.
   const body = {
     name: `run-${Date.now()}`,
     description: task,
-    agents: programs.map((program, i) => ({
-      program,
-      role: i === 0 ? 'lead' : 'worker',
-      hostId: 'local',
-    })),
+    agents: agentRows.map((row, i) => {
+      const agent = { program: row.programSel.value, role: i === 0 ? 'lead' : 'worker', hostId: 'local' }
+      // DEFAULT_MODEL_VALUE ("") means "no --model was picked" — omit the key
+      // entirely rather than sending an empty string, so the agent CLI's own
+      // config (e.g. ~/.codex/config.toml) decides the model.
+      if (row.modelSel.value) agent.model = row.modelSel.value
+      return agent
+    }),
     feedMode: 'live',
   }
   const cwd = $('ntCwd').value.trim()
@@ -377,6 +501,7 @@ function select(id) {
   if (skillPicker) skillPicker.dismiss()
   for (const p of state.paneEls.values()) if (p.stopBreathe) p.stopBreathe()
   state.paneEls.clear()
+  state.lastMessages = [] // stale cache from the previous team must not seed the new panes
 
   clear($('panes'))
   clear($('feed'))
@@ -428,6 +553,8 @@ function createMessageEl(m) {
 async function pollFeed() {
   if (!state.selected) return
   const { messages } = await api(`/api/ensemble/teams/${encodeURIComponent(state.selected)}/feed`)
+  state.lastMessages = messages || []
+  renderPaneMessages(state.lastMessages)
   const box = $('feed')
 
   if (!messages || !messages.length) {
@@ -494,17 +621,74 @@ $('disband').addEventListener('click', async () => {
 })
 
 // ── agent panes ─────────────────────────────────────────────────────────────
+// Each pane defaults to a filtered view of the same transcript messages shown
+// in the center column (see renderPaneMessages) rather than the raw PTY dump.
+// A per-pane toggle (p.mode) switches that one pane to the raw capture and
+// back; the /pane fetch itself always runs (see pollPanes) so the live/no
+// session indicator keeps working no matter which view is showing.
+function togglePaneMode(p) {
+  p.mode = p.mode === 'raw' ? 'messages' : 'raw'
+  setClass(p.wrap, 'raw-mode', p.mode === 'raw')
+  setText(p.toggleBtn, p.mode === 'raw' ? 'msgs' : 'raw')
+}
+
 function createPaneEl(agent, team) {
   const session = `${team.name}-${agent.name}`
   const style = speakerStyle(agent.name)
   const nameEl = h('strong', { text: `${style.icon} ${agent.name}`, style: { color: style.color } })
-  const metaEl = h('span', { class: 'pane-meta', text: `${agent.program} · ${agent.role || ''}` })
+  // Third segment (the model) only appears when one was picked at creation —
+  // absent means "no --model was passed, the CLI used its own config," which is
+  // a real, distinct state from any specific model and must not be guessed at.
+  const metaText = `${agent.program} · ${agent.role || ''}` + (agent.model ? ` · ${agent.model}` : '')
+  const metaEl = h('span', { class: 'pane-meta', text: metaText })
   const live = h('span', { class: 'live', text: '…' })
+  const p = {
+    wrap: null, pre: null, msgs: null, live, toggleBtn: null,
+    session, agentName: agent.name, mode: 'messages', stopBreathe: null,
+  }
+  const toggleBtn = btn('btn ghost pane-toggle', 'raw', () => togglePaneMode(p),
+    { title: 'Toggle raw terminal view', 'aria-label': `Toggle raw terminal view for ${agent.name}` })
   const hd = h('div', { class: 'pane-hd', style: { boxShadow: `inset 3px 0 0 ${style.color}` } },
-    [nameEl, metaEl, h('span', { class: 'spacer' }), live])
+    [nameEl, metaEl, h('span', { class: 'spacer' }), toggleBtn, live])
   const pre = h('pre', { class: 'pane-body' })
-  const wrap = h('div', { class: 'pane' }, [hd, pre])
-  return { wrap, pre, live, session, stopBreathe: null }
+  const msgs = h('div', { class: 'pane-msgs' },
+    [h('div', { class: 'empty is-placeholder', text: 'No messages yet.' })])
+  const wrap = h('div', { class: 'pane' }, [hd, pre, msgs])
+  p.wrap = wrap
+  p.pre = pre
+  p.msgs = msgs
+  p.toggleBtn = toggleBtn
+  return p
+}
+
+// Filters the same `messages` array pollFeed() already fetched for the transcript
+// down to each pane's own agent, and appends any new entries into that pane's
+// `.pane-msgs` box. Called from pollFeed() every poll tick, and again from
+// pollPanes() right after a pane is (re)created so a fresh pane doesn't sit on
+// its placeholder until the next tick happens to land after it exists.
+function renderPaneMessages(messages) {
+  const all = messages || []
+  for (const p of state.paneEls.values()) {
+    const box = p.msgs
+    const name = p.agentName
+    const mine = all.filter(m => m.from === name || m.to === name ||
+      (m.from === 'ensemble' && typeof m.content === 'string' && m.content.includes(name)))
+
+    if (!mine.length) {
+      if (!box.querySelector('.empty')) {
+        clear(box)
+        box.append(h('div', { class: 'empty is-placeholder', text: 'No messages yet.' }))
+      }
+      continue
+    }
+
+    const placeholder = box.querySelector('.is-placeholder')
+    if (placeholder) placeholder.remove()
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40
+    const added = append(box, mine, { create: createMessageEl })
+    if (added.length) enter(added)
+    if (atBottom) box.scrollTop = box.scrollHeight
+  }
 }
 
 async function pollPanes() {
@@ -526,6 +710,9 @@ async function pollPanes() {
         box.append(p.wrap)
         state.paneEls.set(p.session, p)
       }
+      // Seed the freshly created panes from the last-known feed rather than
+      // waiting on the next pollFeed() tick to fill them in.
+      renderPaneMessages(state.lastMessages)
     }
   }
 
@@ -540,6 +727,9 @@ async function pollPanes() {
       // dead pane from advertising itself in the same accent green as a live one.
       setClass(p.live, 'off', !data.exists)
       p.stopBreathe = breathe(p.live, !!data.exists)
+      // Always kept up to date even in 'messages' mode — cheap (lines=80) and it means
+      // toggling to raw never shows stale text while the next poll tick catches up.
+      // Visibility between the raw <pre> and the message list is CSS-only (.raw-mode).
       const atBottom = p.pre.scrollHeight - p.pre.scrollTop - p.pre.clientHeight < 40
       setText(p.pre, data.pane || (data.exists ? '(empty)' : ''))
       if (atBottom) p.pre.scrollTop = p.pre.scrollHeight
@@ -726,7 +916,10 @@ const skillPicker = attachSkillPicker({
 for (const el of [
   $('refresh'), $('disband'), $('send'), $('ntGo'), $('toggleNew'),
   $('clearLog'), $('refreshAccounts'), $('tabMonitor'), $('tabAccounts'),
+  $('ntAddAgent'),
 ]) pressable(el)
+
+initAgentRows().catch(err => console.error('[monitor] failed to init agent rows:', err))
 
 // The underline has to be placed once up front. switchTab() early-returns when the
 // requested tab is already active, so the monitor tab — the one we boot into — would

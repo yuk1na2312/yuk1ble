@@ -22,7 +22,7 @@ import { getRuntime } from '../lib/agent-runtime'
 import type { AgentRuntime } from '../lib/agent-runtime'
 import { ensureSubmitted } from '../lib/paste-submit'
 import { getSkillCatalog } from '../lib/skill-catalog'
-import { resolveAgentProgram, resolveReadyMarkers } from '../lib/agent-config'
+import { resolveAgentProgram, resolveReadyMarkers, resolveAgentModels, isValidModel } from '../lib/agent-config'
 import { matchReadyMarker, isQuiescentReady } from '../lib/pane-readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
 import {
@@ -673,9 +673,43 @@ export function buildPromptPreview(params: {
   ].join(' ')
 }
 
+/**
+ * Validates every requested agent model against that program's own catalog,
+ * server-side, before a single PTY is spawned or the team is even persisted
+ * (design doc §5 — the load-bearing part of per-agent model selection).
+ * Mirrors invokeAgentSkill's allowlist check (line ~1256 above): the value
+ * is tested against the program's own catalog before anything is delivered
+ * or spawned.
+ *
+ * Without this, a bad model string makes the agent CLI exit immediately,
+ * the readiness wait burns the full READY_TIMEOUT_MS, and team creation
+ * hangs with no usable error — the single failure mode that has cost this
+ * repo the most live runs.
+ *
+ * `isValidModel` normalizes the program name through resolveAgentProgram()
+ * internally, so this deliberately does NOT pre-normalize `agent.program` —
+ * a second, different normalization path here would risk drifting from the
+ * one in lib/agent-config.ts.
+ */
+function validateAgentModels(agents: CreateTeamRequest['agents']): string | undefined {
+  for (const agent of agents) {
+    if (!agent.model) continue
+    if (isValidModel(agent.program, agent.model)) continue
+    const accepted = resolveAgentModels(agent.program).map(m => m.id)
+    return accepted.length
+      ? `Unknown model "${agent.model}" for ${agent.program} — accepted models: ${accepted.join(', ')}`
+      : `${agent.program} has no model catalog — "${agent.model}" is not a valid selection`
+  }
+  return undefined
+}
+
 export async function createEnsembleTeam(
   request: CreateTeamRequest
 ): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+  // Validate before anything else: no team record, no worktree, no PTY.
+  const modelError = validateAgentModels(request.agents)
+  if (modelError) return { error: modelError, status: 400 }
+
   const team = createTeam(request)
   const cwd = request.workingDirectory || process.cwd()
   const worktreeMap = new Map<string, WorktreeInfo>()
@@ -748,6 +782,7 @@ export async function createEnsembleTeam(
           program: agentSpec.program,
           workingDirectory: agentCwd,
           hostId,
+          model: agentSpec.model,
         })
         agentId = spawned.id
       } else {

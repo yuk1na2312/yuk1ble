@@ -17,6 +17,7 @@ import { PtyRuntime } from './lib/pty-runtime'
 import { installLogCapture, getLogEntries } from './lib/log-buffer'
 import { getAccountStatuses } from './lib/account-status'
 import { getSkillCatalog } from './lib/skill-catalog'
+import { loadAgentsConfig } from './lib/agent-config'
 
 installLogCapture()
 setRuntime(new PtyRuntime())
@@ -70,6 +71,32 @@ export function resolveStaticFile(urlPath: string): string | null {
 
 export function staticContentType(filePath: string): string {
   return STATIC_CONTENT_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream'
+}
+
+export interface ProgramCatalogEntry {
+  name: string
+  icon: string
+  color: string
+  models: { id: string; label: string }[]
+}
+
+/**
+ * Pure transform of agents.json into the GET /api/ensemble/programs response
+ * shape — no filesystem access beyond loadAgentsConfig()'s own cached read,
+ * so it's unit-testable the same way resolveStaticFile()/staticContentType()
+ * are, without an HTTP round trip. A program with no `models` catalog (e.g.
+ * aider, gemini, opencode) gets `models: []`, not an absent field — the GUI's
+ * disabled-dropdown-not-hidden requirement (design doc §8) needs a stable
+ * shape to key off, and `[]` is that "no picker" signal.
+ */
+export function buildProgramsCatalog(): ProgramCatalogEntry[] {
+  const catalog = loadAgentsConfig()
+  return Object.values(catalog).map(agent => ({
+    name: agent.name,
+    icon: agent.icon,
+    color: agent.color,
+    models: agent.models ?? [],
+  }))
 }
 
 const PORT = parseInt(process.env.ENSEMBLE_PORT || process.env.ORCHESTRA_PORT || '23000', 10)
@@ -347,6 +374,17 @@ const server = http.createServer(async (req, res) => {
       if (!agent) return json(res, { error: 'Agent not found' }, 404, origin)
       const catalog = await getSkillCatalog(agent.program, resolveAgentProjectDir(team, agent))
       return json(res, catalog, 200, origin)
+    }
+
+    // Program + model catalog for the GUI's new-team form:
+    // GET /api/ensemble/programs. Read-only, derived entirely from
+    // agents.json — no path or filesystem input, so unlike /api/ensemble/skills
+    // this needs no team/agent lookup at all. Registered above the static
+    // fallback, same reasoning as /api/ensemble/skills below: matched here,
+    // it can never be shadowed by a public/ file of the same path. See
+    // docs/superpowers/specs/2026-08-17-per-agent-model-selection-design.md §7.
+    if (path === '/api/ensemble/programs' && method === 'GET') {
+      return json(res, buildProgramsCatalog(), 200, origin)
     }
 
     // Monitoring UI + static assets: the whole public/ tree (index.html,
