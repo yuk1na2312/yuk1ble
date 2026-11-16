@@ -157,6 +157,26 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
   return structuredClone(next)
 }
 
+/**
+ * Startup cleanup. PTY sessions live inside the server process, so a team still
+ * `forming` or `active` when the server boots lost every agent with the old
+ * process. Only the server entrypoint may call this — never a CLI process.
+ */
+export function disbandLiveTeamsOnBoot(): number {
+  loadTeamsOnce()
+  const completedAt = new Date().toISOString()
+  let count = 0
+  for (const team of teams.values()) {
+    if (team.status !== 'active' && team.status !== 'forming') continue
+    const disbanded: EnsembleTeam = { ...team, status: 'disbanded', completedAt }
+    teams.set(team.id, disbanded)
+    bus.emit('team', structuredClone(disbanded))
+    count++
+  }
+  if (count > 0) markTeamsDirty()
+  return count
+}
+
 // ─── Messages ───────────────────────────────────────────────────────────────
 
 function dedupeKey(msg: EnsembleMessage): string {

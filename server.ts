@@ -14,6 +14,7 @@ import {
 import { getRuntime, setRuntime } from './lib/agent-runtime'
 import { PtyRuntime } from './lib/pty-runtime'
 import { installLogCapture, getLogEntries } from './lib/log-buffer'
+import { disbandLiveTeamsOnBoot } from './lib/ensemble-registry'
 
 installLogCapture()
 setRuntime(new PtyRuntime())
@@ -215,6 +216,13 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   console.error('[Ensemble] Server failed to start:', err)
   process.exit(1)
 })
+
+// PTY sessions live in this process, so no team recorded as running before the
+// start can still have its agents. Runs here, never in a CLI process.
+const staleTeams = disbandLiveTeamsOnBoot()
+if (staleTeams > 0) {
+  console.log(`[Ensemble] Startup cleanup: marked ${staleTeams} team(s) from the previous run as disbanded`)
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`[Ensemble] Server running on http://${HOST}:${PORT}`)

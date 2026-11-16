@@ -95,6 +95,32 @@ describe('registry store', () => {
     })
   })
 
+  describe('boot cleanup', () => {
+    it('marks every active and forming team disbanded and leaves the rest alone', async () => {
+      const base = { description: 'd', agents: [], createdBy: 'u', createdAt: '2020-01-01T00:00:00.000Z', feedMode: 'live' as const }
+      const seeded: EnsembleTeam[] = [
+        { ...base, id: 't-active', name: 'a', status: 'active' },
+        { ...base, id: 't-forming', name: 'f', status: 'forming', createdAt: new Date().toISOString() },
+        { ...base, id: 't-done', name: 'd', status: 'completed' },
+        { ...base, id: 't-off', name: 'o', status: 'disbanded', completedAt: '2020-01-02T00:00:00.000Z' },
+      ]
+      fs.mkdirSync(path.dirname(teamsFile), { recursive: true })
+      fs.writeFileSync(teamsFile, JSON.stringify(seeded))
+
+      const store = await load()
+      expect(store.disbandLiveTeamsOnBoot()).toBe(2)
+      store.flushStore()
+
+      const byId = Object.fromEntries((JSON.parse(fs.readFileSync(teamsFile, 'utf-8')) as EnsembleTeam[]).map(t => [t.id, t]))
+      // A team created a moment ago is cleaned too: the old rule only caught teams older than 2h.
+      expect(byId['t-active']).toMatchObject({ status: 'disbanded', completedAt: expect.any(String) })
+      expect(byId['t-forming']).toMatchObject({ status: 'disbanded', completedAt: expect.any(String) })
+      expect(byId['t-done'].status).toBe('completed')
+      expect(byId['t-off'].completedAt).toBe('2020-01-02T00:00:00.000Z')
+      expect(store.disbandLiveTeamsOnBoot()).toBe(0)
+    })
+  })
+
   describe('messages', () => {
     it('numbers messages per team in append order and filters by seq', async () => {
       const store = await load()

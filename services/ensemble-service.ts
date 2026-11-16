@@ -117,7 +117,6 @@ class EnsembleService {
   private readonly unsubscribeMessages: () => void
 
   constructor() {
-    this.cleanupStaleTeams()
     this.unsubscribeMessages = bus.on('message', message => this.onMessage(message))
     this.idleCheckTimer = setInterval(() => {
       void this.checkIdleTeams()
@@ -142,24 +141,6 @@ class EnsembleService {
 
     for (const signal of ['SIGINT', 'SIGTERM', 'beforeExit', 'exit'] as const) {
       process.once(signal, () => this.stop())
-    }
-  }
-
-  private cleanupStaleTeams(): void {
-    const teams = loadTeams()
-    const staleThresholdMs = 2 * 60 * 60 * 1000 // 2 hours
-    const now = Date.now()
-    let count = 0
-    for (const team of teams) {
-      if (team.status !== 'active') continue
-      const age = now - new Date(team.createdAt).getTime()
-      if (age > staleThresholdMs) {
-        updateTeam(team.id, { ...team, status: 'disbanded' })
-        count++
-      }
-    }
-    if (count > 0) {
-      console.log(`[Ensemble] Startup cleanup: disbanded ${count} stale active team(s)`)
     }
   }
 

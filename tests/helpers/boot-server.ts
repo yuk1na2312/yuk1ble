@@ -27,7 +27,7 @@ export async function freeClosedPort(): Promise<number> {
   return getFreePort()
 }
 
-export async function bootServer() {
+export async function bootServer(options: { seed?: (dataRoot: string) => void } = {}) {
   const saved = { ...process.env }
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ensemble-server-'))
   const port = await getFreePort()
@@ -45,6 +45,8 @@ export async function bootServer() {
     sessionExists: vi.fn(async (_session: string) => true),
   }
   const spawnLocalAgent = vi.fn(async ({ name }: { name: string }) => ({ id: `${name}-id` }))
+
+  options.seed?.(tempRoot)
 
   vi.resetModules()
   vi.doMock('../../lib/agent-spawner', () => ({
