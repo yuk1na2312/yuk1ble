@@ -109,16 +109,6 @@ const AUTO_CONFIRM_GATES: AutoConfirmGate[] = [
   },
 ]
 
-// Telegram notifications: set both env vars to enable, omit to disable
-const TELEGRAM_BOT_TOKEN = process.env.ENSEMBLE_TELEGRAM_BOT_TOKEN || ''
-const TELEGRAM_CHAT_ID = process.env.ENSEMBLE_TELEGRAM_CHAT_ID || ''
-
-// Optional: helsdingen-alerts hub (2026-04-21: ensemble collab summaries
-// gaan hier doorheen voor centrale dedup + D1-logging). Fallback op de
-// Direct Telegram fallback when ALERT_HUB_SECRET is not configured.
-const ALERT_HUB_URL = process.env.ALERT_HUB_URL || 'https://alerts.camviewer.app/ingest/alert'
-const ALERT_HUB_SECRET = process.env.ALERT_HUB_SECRET || ''
-
 // ─── Collab bridge lifecycle ────────────────────────────────────────────────
 //
 // `ensemble bridge <teamId>` is the ONLY component that turns a `team-say`
@@ -481,100 +471,6 @@ function formatDuration(durationMs: number): string {
   return durationMin >= 60
     ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
     : `${durationMin}m`
-}
-
-/** Escape special chars for Telegram MarkdownV2 */
-function escMd(s: string): string {
-  return s.replace(/([_[\]()~`>#+\-=|{}.!*\\])/g, '\\$1')
-}
-
-/** Escape HTML voor alert-hub body. */
-function escHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function postNotification(url: string, init: RequestInit, target: string): void {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 10_000)
-  timeout.unref()
-
-  void fetch(url, {
-    ...init,
-    method: 'POST',
-    signal: controller.signal,
-  }).then(response => {
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`)
-    }
-  }).catch(error => {
-    const reason = error instanceof Error ? error.message : String(error)
-    console.error(`[Ensemble] Failed to post to ${target}: ${reason}`)
-  }).finally(() => clearTimeout(timeout))
-}
-
-function sendTelegramSummary(params: {
-  task: string
-  duration: string
-  messageCount: number
-  agentSummaries: { name: string; msgs: number; tokens: string }[]
-  teamId?: string
-}): void {
-  // Stabiele dedup-key. teamId indien aangeleverd door caller, anders
-  // task-slice + now zodat retries niet dubbel posten.
-  const teamKey = params.teamId || `${params.task.slice(0, 40).replace(/\\s+/g, '-')}-${Date.now()}`
-
-  // Voorkeur: helsdingen-alerts hub als ALERT_HUB_SECRET gezet is.
-  if (ALERT_HUB_SECRET) {
-    const agents = params.agentSummaries
-    const agentLine = agents.map(a => `${escHtml(a.name)} (${a.msgs}, ${escHtml(a.tokens)})`).join(' + ')
-    const hubBody = [
-      `<i>${escHtml(params.task.slice(0, 150))}</i>`,
-      agentLine,
-    ].join('\n')
-
-    const hubPayload = {
-      app: 'ensemble',
-      severity: 'low',
-      dedup_key: `collab-${teamKey}`,
-      title: `\u2728 <b>Collab klaar</b> \u2014 ${escHtml(params.duration)}, ${params.messageCount} msgs`,
-      body: hubBody,
-    }
-
-    postNotification(
-      `${ALERT_HUB_URL}?key=${encodeURIComponent(ALERT_HUB_SECRET)}`,
-      {
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(hubPayload),
-      },
-      'alert-hub',
-    )
-    return
-  }
-
-  // Fallback: directe Telegram als hub-secret niet gezet.
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return
-
-  const agents = params.agentSummaries
-  const agentLine = agents.map(a => `${escMd(a.name)} \\(${a.msgs}, ${escMd(a.tokens)}\\)`).join(' \\+ ')
-
-  const text = [
-    `\u2728 *Collab klaar* \u2014 ${escMd(params.duration)}, ${params.messageCount} msgs`,
-    escMd(params.task.slice(0, 100)),
-    agentLine,
-  ].join('\n')
-
-  postNotification(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-    {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        chat_id: TELEGRAM_CHAT_ID,
-        parse_mode: 'MarkdownV2',
-        text,
-      }),
-    },
-    'Telegram',
-  )
 }
 
 export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['templates'][string] | undefined {
@@ -1151,17 +1047,6 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
   // Write summary before killing sessions so the Claude Code session can present it
   await writeDisbandSummary(teamId)
 
-  // Scrape token usage BEFORE killing sessions (terminal buffers disappear on kill)
-  const tokenUsageMap: Record<string, string> = {}
-  await Promise.all(
-    team.agents
-      .filter(a => a.status === 'active')
-      .map(async (agent) => {
-        const sessionName = `${team.name}-${agent.name}`
-        tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName)
-      })
-  )
-
   for (const agent of team.agents) {
     if (agent.status === 'active') {
       appendMessage(teamId, {
@@ -1234,58 +1119,6 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
       if (fs.existsSync(f)) fs.unlinkSync(f)
     }
   } catch { /* non-fatal cleanup */ }
-
-  // Optional: save session summary to claude-mem
-  try {
-    const messages = getMessages(teamId)
-    const agentMessages = messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
-    if (agentMessages.length > 0) {
-      const durationMs = updated!.completedAt && team.createdAt
-        ? new Date(updated!.completedAt).getTime() - new Date(team.createdAt).getTime()
-        : 0
-      const duration = formatDuration(durationMs)
-
-      // Build a concise summary with token usage
-      const agents = [...new Set(agentMessages.map(m => m.from))]
-      const summaryParts = agents.map(agent => {
-        const msgs = agentMessages.filter(m => m.from === agent)
-        const first = msgs[0]?.content.slice(0, 300) || ''
-        const last = msgs[msgs.length - 1]?.content.slice(0, 500) || ''
-        const tokens = tokenUsageMap[agent] || 'unknown'
-        return `${agent} (${msgs.length} msgs, tokens: ${tokens}):\n  Start: ${first}\n  Eind: ${last}`
-      })
-
-      sendTelegramSummary({
-        task: team.description || 'unknown',
-        duration,
-        messageCount: agentMessages.length,
-        agentSummaries: agents.map(agent => ({
-          name: agent,
-          msgs: agentMessages.filter(m => m.from === agent).length,
-          tokens: tokenUsageMap[agent] || '?',
-        })),
-        teamId: team.id,
-      })
-
-      // Detect the working directory as project hint
-      const cwdMatch = team.description.match(/workingDirectory[:\s]*([^\s,}]+)/)
-      const project = process.env.ENSEMBLE_PROJECT
-        || (cwdMatch ? cwdMatch[1].split('/').pop() : undefined)
-        || 'ensemble'
-
-      fetch('http://localhost:37777/api/observations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: `Collab: ${team.description.slice(0, 80)}`,
-          subtitle: `${agents.join(' + ')} — ${duration}, ${agentMessages.length} messages`,
-          type: 'discovery',
-          narrative: `Team "${team.name}" (${duration}):\nTask: ${team.description.slice(0, 200)}\n\n${summaryParts.join('\n\n')}`,
-          project,
-        }),
-      }).catch(() => {})
-    }
-  } catch { /* non-fatal */ }
 
   return { data: { team: updated! }, status: 200 }
 }
