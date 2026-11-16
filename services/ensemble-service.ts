@@ -20,6 +20,7 @@ import { ensureSubmitted } from '../lib/paste-submit'
 import { resolveAgentProgram, resolveReadyMarkers } from '../lib/agent-config'
 import { matchReadyMarker, isQuiescentReady } from '../lib/pane-readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
+import { bus } from '../lib/bus'
 import {
   collabPromptFile, collabDeliveryFile, collabSummaryFile,
   collabRuntimeDir, collabFinishedMarker, collabBridgePosted,
@@ -67,7 +68,8 @@ const QUIESCENT_READY_MS = 20_000
 const MIN_MESSAGES_BEFORE_AUTO_DISBAND = 10
 // Explicit sentinel: when both agents send this exact marker as a full
 // message, the team auto-disbands immediately — no idle wait, no minimum
-// message count. Agents are instructed to use it in buildPromptPreview.
+// message count. Agents are instructed to use it in buildPromptPreview. It is
+// checked on the bus 'message' event, the moment the second one is appended.
 const EXPLICIT_DONE_SENTINEL = '<<COLLAB_DONE>>'
 
 // Interactive gates that block agent startup and need an automated response.
@@ -325,9 +327,11 @@ class EnsembleService {
   private readonly disbandingTeams = new Set<string>()
   private readonly idleCheckTimer: NodeJS.Timeout
   private readonly watchdog: AgentWatchdog
+  private readonly unsubscribeMessages: () => void
 
   constructor() {
     this.cleanupStaleTeams()
+    this.unsubscribeMessages = bus.on('message', message => this.onMessage(message))
     this.idleCheckTimer = setInterval(() => {
       void this.checkIdleTeams()
     }, IDLE_CHECK_INTERVAL_MS)
@@ -374,57 +378,64 @@ class EnsembleService {
     }
   }
 
+  /**
+   * The done sentinel from an agent. Runs synchronously inside the store's
+   * emit, so the disband itself is deferred to a microtask: starting it here
+   * would append its own message before later listeners have seen this one.
+   */
+  private onMessage(message: EnsembleMessage): void {
+    if (message.content?.trim() !== EXPLICIT_DONE_SENTINEL) return
+    const team = getTeam(message.teamId)
+    if (!team || team.status !== 'active') return
+
+    const activeNames = new Set(team.agents.filter(a => a.status === 'active').map(a => a.name))
+    const sentinelSenders = new Set(
+      getMessages(team.id)
+        .filter(m => activeNames.has(m.from) && m.content?.trim() === EXPLICIT_DONE_SENTINEL)
+        .map(m => m.from),
+    )
+    if (sentinelSenders.size < 2) return
+    queueMicrotask(() => { void this.autoDisband(team, `both agents sent ${EXPLICIT_DONE_SENTINEL}`) })
+  }
+
+  /** Disband teams that have gone quiet. Elapsed time is the only condition here, so it is a timer. */
   async checkIdleTeams(): Promise<void> {
     const teams = loadTeams().filter(team => team.status === 'active')
 
     for (const team of teams) {
-      if (this.disbandingTeams.has(team.id)) continue
-      const reason = this.autoDisbandReason(team)
-      if (!reason) continue
-
-      this.disbandingTeams.add(team.id)
-
-      try {
-        appendMessage(team.id, {
-          id: randomUUID(),
-          teamId: team.id,
-          from: 'ensemble',
-          to: 'team',
-          content: `Auto-disband: ${reason}`,
-          type: 'chat',
-          timestamp: new Date().toISOString(),
-        })
-
-        await writeDisbandSummary(team.id)
-        await disbandTeam(team.id)
-      } catch (err) {
-        console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
-      } finally {
-        this.disbandingTeams.delete(team.id)
-      }
+      const reason = this.idleReason(team)
+      if (reason) await this.autoDisband(team, reason)
     }
   }
 
-  /** Why this team should auto-disband right now, or null to leave it running. */
-  private autoDisbandReason(team: EnsembleTeam): string | null {
-    const messages = getMessages(team.id)
-    const nonEnsembleMessages = messages.filter(message => message.from !== 'ensemble')
+  private async autoDisband(team: EnsembleTeam, reason: string): Promise<void> {
+    if (this.disbandingTeams.has(team.id)) return
+    this.disbandingTeams.add(team.id)
+
+    try {
+      appendMessage(team.id, {
+        id: randomUUID(),
+        teamId: team.id,
+        from: 'ensemble',
+        to: 'team',
+        content: `Auto-disband: ${reason}`,
+        type: 'chat',
+        timestamp: new Date().toISOString(),
+      })
+
+      await disbandTeam(team.id) // writes the summary before killing sessions
+    } catch (err) {
+      console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
+    } finally {
+      this.disbandingTeams.delete(team.id)
+    }
+  }
+
+  /** Why this team has gone idle long enough to disband, or null to leave it running. */
+  private idleReason(team: EnsembleTeam): string | null {
+    const nonEnsembleMessages = getMessages(team.id).filter(message => message.from !== 'ensemble')
     const lastMessage = nonEnsembleMessages[nonEnsembleMessages.length - 1]
     if (!lastMessage) return null
-
-    // Explicit sentinel path: if at least two DIFFERENT active agents have
-    // sent the exact done sentinel, disband immediately. This bypasses the
-    // min-message count and the idle wait — the agents have explicitly
-    // agreed the task is done.
-    const activeNames = new Set(team.agents.filter(a => a.status === 'active').map(a => a.name))
-    const sentinelSenders = new Set(
-      messages
-        .filter(m => activeNames.has(m.from) && m.content.trim() === EXPLICIT_DONE_SENTINEL)
-        .map(m => m.from),
-    )
-    if (sentinelSenders.size >= 2) {
-      return `both agents sent ${EXPLICIT_DONE_SENTINEL}`
-    }
 
     // Don't auto-disband until agents have exchanged enough messages
     if (nonEnsembleMessages.length < MIN_MESSAGES_BEFORE_AUTO_DISBAND) return null
@@ -449,6 +460,7 @@ class EnsembleService {
 
   private stop(): void {
     clearInterval(this.idleCheckTimer)
+    this.unsubscribeMessages()
     this.watchdog.stop()
     stopAllCollabBridgesSync()
   }

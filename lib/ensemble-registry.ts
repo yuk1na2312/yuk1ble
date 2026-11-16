@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto'
 import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest } from '../types/ensemble'
 import { getEnsembleRegistryDir, getFeedFile } from './ensemble-paths'
 import { collabMessagesFile } from './collab-paths'
+import { bus } from './bus'
 
 const ENSEMBLE_DIR = getEnsembleRegistryDir()
 const TEAMS_FILE = path.join(ENSEMBLE_DIR, 'teams.json')
@@ -183,6 +184,7 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
   }
   teams.set(team.id, team)
   markTeamsDirty()
+  bus.emit('team', structuredClone(team))
   return structuredClone(team)
 }
 
@@ -193,6 +195,7 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
   const next = { ...current, ...structuredClone(updates) }
   teams.set(id, next)
   markTeamsDirty()
+  bus.emit('team', structuredClone(next))
   return structuredClone(next)
 }
 
@@ -282,6 +285,7 @@ export function appendMessage(teamId: string, message: EnsembleMessage): void {
   } catch (err) {
     console.error(`[Registry] Could not persist message for ${teamId}:`, err)
   }
+  bus.emit('message', { ...message })
 }
 
 /**

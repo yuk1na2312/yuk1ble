@@ -6,6 +6,8 @@
  * originals are always called, so the terminal keeps working unchanged.
  */
 
+import { bus } from './bus'
+
 const MAX_ENTRIES = 2000
 
 export interface LogEntry {
@@ -18,6 +20,7 @@ export interface LogEntry {
 const entries: LogEntry[] = []
 let seq = 0
 let installed = false
+let emitting = false
 
 function record(level: LogEntry['level'], args: unknown[]): void {
   const text = args
@@ -32,8 +35,18 @@ function record(level: LogEntry['level'], args: unknown[]): void {
     })
     .join(' ')
 
-  entries.push({ seq: ++seq, timestamp: new Date().toISOString(), level, text })
+  const entry: LogEntry = { seq: ++seq, timestamp: new Date().toISOString(), level, text }
+  entries.push(entry)
   if (entries.length > MAX_ENTRIES) entries.splice(0, entries.length - MAX_ENTRIES)
+
+  // A listener that logs would otherwise re-enter here forever.
+  if (emitting) return
+  emitting = true
+  try {
+    bus.emit('log', { ...entry })
+  } finally {
+    emitting = false
+  }
 }
 
 /** Patch console.log/warn/error to tee into the buffer. Safe to call twice. */

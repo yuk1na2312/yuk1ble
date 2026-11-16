@@ -306,18 +306,61 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     return { mod, appendedMessages }
   }
 
-  it('auto-disbands immediately once both agents send the explicit done sentinel', async () => {
+  // The sentinel is evaluated on the bus 'message' event, not by the 15 s idle timer.
+  async function emitSentinelOnBus(message: EnsembleMessage) {
+    const { bus } = await import('../lib/bus')
+    bus.emit('message', message)
+    // The disband is deferred one microtask so later listeners see this message first.
+    await Promise.resolve()
+  }
+
+  it('auto-disbands as soon as the second done sentinel is appended, without waiting for the idle check', async () => {
+    const team = makeTeam()
+    const first = makeMessage({ from: 'codex-1', teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: '2026-03-18T12:04:20.000Z' })
+    const second = makeMessage({ from: 'claude-2', teamId: 'team-1', content: ' <<COLLAB_DONE>>\n', timestamp: '2026-03-18T12:04:50.000Z' })
+
+    // Only the first sentinel has been appended so far: keep going.
+    const { appendedMessages } = await setupServiceWithMocks(team, padConversation([first]))
+    await emitSentinelOnBus(first)
+    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+
+    vi.resetModules()
+    const both = await setupServiceWithMocks(team, padConversation([first, second]))
+    await emitSentinelOnBus(second)
+
+    const disband = both.appendedMessages.find(m => m.content.includes('Auto-disband'))
+    expect(disband?.content).toContain('<<COLLAB_DONE>>')
+  })
+
+  it('a sentinel from the same agent twice does not end the run', async () => {
+    const team = makeTeam()
+    const one = makeMessage({ from: 'codex-1', teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: '2026-03-18T12:04:00.000Z' })
+    const again = makeMessage({ from: 'codex-1', teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: '2026-03-18T12:04:30.000Z' })
+    const { appendedMessages } = await setupServiceWithMocks(team, padConversation([one, again]))
+    await emitSentinelOnBus(again)
+    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+  })
+
+  it('ignores a sentinel that is only part of a longer message', async () => {
+    const team = makeTeam()
+    const a = makeMessage({ from: 'codex-1', teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: '2026-03-18T12:04:00.000Z' })
+    const b = makeMessage({ from: 'claude-2', teamId: 'team-1', content: 'I will send <<COLLAB_DONE>> later', timestamp: '2026-03-18T12:04:30.000Z' })
+    const { appendedMessages } = await setupServiceWithMocks(team, padConversation([a, b]))
+    await emitSentinelOnBus(b)
+    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+  })
+
+  it('the idle check no longer ends a run on the sentinel alone', async () => {
+    // Both sentinels are already in the feed, yet nothing disbands from a timer
+    // tick: the event is the only trigger, the timer is for elapsed time.
     const team = makeTeam()
     const messages = padConversation([
       makeMessage({ from: 'codex-1', teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: '2026-03-18T12:04:20.000Z' }),
       makeMessage({ from: 'claude-2', teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: '2026-03-18T12:04:50.000Z' }),
     ])
-
     const { mod, appendedMessages } = await setupServiceWithMocks(team, messages)
     await mod.checkIdleTeams()
-
-    const disband = appendedMessages.find(m => m.content.includes('Auto-disband'))
-    expect(disband?.content).toContain('<<COLLAB_DONE>>')
+    expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
   })
 
   it('does NOT auto-disband seconds after agents merely say the work is done', async () => {
