@@ -20,6 +20,7 @@ describe('sendTeamMessage delivery', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.resetModules()
     for (const [key, value] of [['ENSEMBLE_DATA_DIR', saved.data], ['ENSEMBLE_RUNTIME_DIR', saved.runtime]] as const) {
@@ -31,14 +32,14 @@ describe('sendTeamMessage delivery', () => {
 
   async function setup() {
     const runtime = {
-      sessionExists: vi.fn(async () => true),
-      pasteFromFile: vi.fn(async (session: string, file: string) => {
+      exists: vi.fn(() => true),
+      paste: vi.fn((session: string, text: string) => {
         if (session === pasteFailsFor) throw new Error('PTY session not found')
-        events.push(`paste ${session} ${fs.readFileSync(file, 'utf8').split('\n')[0]}`)
+        events.push(`paste ${session} ${text.split('\n')[0]}`)
       }),
       // ensureSubmitted looks at the pane once after its first wait.
-      capturePane: vi.fn(async (session: string) => { events.push(`submit-check ${session}`); return '>' }),
-      sendKeys: vi.fn(async () => {}),
+      screen: vi.fn((session: string) => { events.push(`submit-check ${session}`); return '>' }),
+      sendKeys: vi.fn(() => {}),
     }
     vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
     vi.doMock('../lib/agent-spawner', () => ({
@@ -104,34 +105,30 @@ describe('sendTeamMessage delivery', () => {
   }, 15_000)
 
   describe('the response does not wait for delivery', () => {
-    let release!: () => void
-    let blocked: Promise<void>
-    beforeEach(() => { blocked = new Promise<void>(resolve => { release = resolve }) })
-
-    it('resolves with the message already in the feed while the paste is still pending', async () => {
-      const { service, store, runtime, teamId } = await setup()
-      runtime.pasteFromFile.mockImplementation(async (session: string, file: string) => {
-        await blocked
-        events.push(`paste ${session} ${fs.readFileSync(file, 'utf8').split('\n')[0]}`)
-      })
+    it('resolves with the message already in the feed while an earlier delivery still holds the terminal', async () => {
+      const { service, store, teamId } = await setup()
+      const first = await service.sendTeamMessage(teamId, 'claude-2', 'first', 'codex-1')
+      await vi.waitFor(() => expect(events).toEqual(['paste trio-claude-2 [Team message from codex-1]: first']))
       const startedAt = Date.now()
 
       const result = await service.sendTeamMessage(teamId, 'claude-2', 'ping', 'codex-1')
 
-      // Resolved long before the 1.5 s submit wait could have passed, with the paste not even finished.
+      // Resolved long before the first delivery's 1.5 s submit wait could have passed: the second paste is queued behind it.
       expect(Date.now() - startedAt).toBeLessThan(1000)
-      expect(events).toEqual([])
-      expect(store.getMessages(teamId).map(m => m.content)).toEqual(['ping'])
-      expect(result.data?.message.seq).toBe(1)
+      expect(events).toEqual(['paste trio-claude-2 [Team message from codex-1]: first'])
+      expect(store.getMessages(teamId).map(m => m.content)).toEqual(['first', 'ping'])
+      expect(result.data?.message.seq).toBe(2)
 
-      release()
-      await result.delivery
-      expect(events).toEqual(['paste trio-claude-2 [Team message from codex-1]: ping', 'submit-check trio-claude-2'])
+      await Promise.all([first.delivery, result.delivery])
+      expect(events).toEqual([
+        'paste trio-claude-2 [Team message from codex-1]: first', 'submit-check trio-claude-2',
+        'paste trio-claude-2 [Team message from codex-1]: ping', 'submit-check trio-claude-2',
+      ])
     }, 15_000)
 
     it('keeps order per recipient and never rejects, even when the failure note cannot be written', async () => {
       const { service, store, runtime, teamId } = await setup()
-      runtime.pasteFromFile.mockRejectedValue(new Error('PTY session not found'))
+      runtime.paste.mockImplementation(() => { throw new Error('PTY session not found') })
       const unhandled: unknown[] = []
       const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
       process.on('unhandledRejection', onUnhandled)
@@ -153,8 +150,9 @@ describe('sendTeamMessage delivery', () => {
     }, 15_000)
 
     it('drops deliveries beyond a bounded queue per session, and says so in the feed', async () => {
-      const { service, store, runtime, teamId } = await setup()
-      runtime.pasteFromFile.mockImplementation(async () => { await blocked })
+      const { service, store, teamId } = await setup()
+      // Each accepted delivery sits out its 1.5 s submit wait, so 52 messages sent at once fill the queue.
+      vi.useFakeTimers({ toFake: ['setTimeout'] })
 
       const results = []
       for (let i = 0; i < 52; i++) results.push(await service.sendTeamMessage(teamId, 'claude-2', `m${i}`, 'codex-1'))
@@ -166,9 +164,7 @@ describe('sendTeamMessage delivery', () => {
       expect(store.getMessages(teamId).filter(m => m.from === 'codex-1')).toHaveLength(52)
 
       // Drain the 50 that were accepted without sitting through 50 real 1.5 s submit waits.
-      vi.useFakeTimers({ toFake: ['setTimeout'] })
       try {
-        release()
         const drained = Promise.all(results.map(r => r.delivery))
         await vi.advanceTimersByTimeAsync(200_000)
         await drained

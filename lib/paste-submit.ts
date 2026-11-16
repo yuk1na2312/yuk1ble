@@ -6,7 +6,7 @@
  * a trailing CR in the same burst does NOT submit it — a standalone Enter,
  * sent a moment later, does.
  *
- * Verified live against codex v0.147 on Windows: after `pasteFromFile` the
+ * Verified live against codex v0.147 on Windows: after `PtyRuntime.paste` the
  * composer held "[Pasted Content 1929 chars]" indefinitely; one Enter submitted
  * it and the agent replied. Without this, an agent silently receives neither its
  * startup prompt nor any teammate message, and merely looks stalled.
@@ -22,7 +22,7 @@ export const PASTE_NOT_SUBMITTED = new RegExp(DEFAULT_PASTE_MARKER, 'i')
 const RETRY_DELAYS_MS = [1500, 3000, 6000]
 
 export async function ensureSubmitted(
-  runtime: Pick<AgentRuntime, 'capturePane' | 'sendKeys'>,
+  runtime: Pick<AgentRuntime, 'screen' | 'sendKeys'>,
   sessionName: string,
   pasteMarker: RegExp | string = PASTE_NOT_SUBMITTED,
 ): Promise<void> {
@@ -31,11 +31,11 @@ export async function ensureSubmitted(
     await new Promise(resolve => setTimeout(resolve, delayMs))
     let pane: string
     try {
-      pane = await runtime.capturePane(sessionName, 80)
+      pane = runtime.screen(sessionName, 80)
     } catch {
       return // Session is gone; nothing to submit into.
     }
     if (!parked.test(pane)) return
-    await runtime.sendKeys(sessionName, 'Enter')
+    runtime.sendKeys(sessionName, 'Enter')
   }
 }

@@ -1,7 +1,7 @@
 /**
  * Regression tests for the "[Pasted Content]" defect.
  *
- * Live evidence (codex v0.147, Windows): after PtyRuntime.pasteFromFile the
+ * Live evidence (codex v0.147, Windows): after PtyRuntime.paste the
  * composer held "[Pasted Content 1929 chars]" indefinitely — the prompt was
  * never submitted, the agent never spoke, and the watchdog reported it stalled.
  * A single standalone Enter submitted it and the agent replied.
@@ -16,9 +16,9 @@ const CLEAN = '› Find and fix a bug in @filename'
 
 function runtimeWith(panes: string[]) {
   let index = 0
-  const capturePane = vi.fn(async () => panes[Math.min(index++, panes.length - 1)])
-  const sendKeys = vi.fn(async () => {})
-  return { capturePane, sendKeys }
+  const screen = vi.fn(() => panes[Math.min(index++, panes.length - 1)])
+  const sendKeys = vi.fn(() => {})
+  return { screen, sendKeys }
 }
 
 /** Drives ensureSubmitted to completion without waiting out its real delays. */
@@ -73,8 +73,8 @@ describe('ensureSubmitted', () => {
 
   it('stops quietly when the session has gone away', async () => {
     const runtime = {
-      capturePane: vi.fn(async () => { throw new Error('PTY session not found') }),
-      sendKeys: vi.fn(async () => {}),
+      screen: vi.fn((): string => { throw new Error('PTY session not found') }),
+      sendKeys: vi.fn(() => {}),
     }
     await runFast(() => ensureSubmitted(runtime, 'team-codex-1'))
 

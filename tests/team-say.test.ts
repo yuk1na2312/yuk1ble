@@ -58,17 +58,13 @@ describe('team-say over HTTP', () => {
     expect(feed.messages).toHaveLength(1)
     expect(feed.messages[0]).toMatchObject({ from: 'codex-1', to: 'claude-2', content: 'hello "world" & <you>', seq: 1 })
 
-    // Delivery goes through pasteFromFile (the paste + Enter path), one session only,
+    // Delivery goes through paste (the paste + Enter path), one session only,
     // and carries on in the background after the CLI has its answer.
-    await vi.waitFor(() => expect(server.runtime.pasteFromFile).toHaveBeenCalledTimes(1))
-    expect(server.runtime.pasteFromFile.mock.calls[0][0]).toBe('say-team-claude-2')
+    await vi.waitFor(() => expect(server.runtime.paste).toHaveBeenCalledTimes(1))
+    expect(server.runtime.paste.mock.calls[0][0]).toBe('say-team-claude-2')
   })
 
-  it('answers as soon as the message is in the feed, before it has been pasted into the terminal', async () => {
-    let release!: () => void
-    const gate = new Promise<void>(resolve => { release = resolve })
-    server.runtime.pasteFromFile.mockImplementationOnce(async () => { await gate })
-
+  it('answers as soon as the message is in the feed, before its delivery (a 1.5 s submit wait) has finished', async () => {
     const startedAt = Date.now()
     const res = await fetch(`${server.baseUrl}/api/ensemble/teams/${teamId}`, {
       method: 'POST',
@@ -80,7 +76,6 @@ describe('team-say over HTTP', () => {
     expect(Date.now() - startedAt).toBeLessThan(1000)
     const feed = await (await fetch(`${server.baseUrl}/api/ensemble/teams/${teamId}/feed`)).json() as { messages: Array<{ content: string }> }
     expect(feed.messages.some(m => m.content === 'not blocked by the paste')).toBe(true)
-    release()
   })
 
   it('records a well-formed message: v4 id, recent ISO timestamp, type chat, unique per message', async () => {

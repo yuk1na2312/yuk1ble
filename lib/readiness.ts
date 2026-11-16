@@ -26,7 +26,7 @@ const GATE_DEBOUNCE_MS = 3000
 const POLL_INTERVAL_MS = 1000
 
 export interface ReadinessOptions {
-  runtime: Pick<AgentRuntime, 'capturePane' | 'sendKeys' | 'sessionExists'>
+  runtime: Pick<AgentRuntime, 'screen' | 'sendKeys' | 'exists'>
   sessionName: string
   readyMarkers: string[]
   gates: AgentGate[]
@@ -63,10 +63,10 @@ export async function waitForReady(options: ReadinessOptions): Promise<boolean> 
   let lastPane = ''
   let lastPaneChangedAt = start
 
-  // A session that has exited is never going to become ready. An unusable sessionExists is "unknown": keep waiting.
-  const sessionHasExited = async (): Promise<boolean> => {
+  // A session that has exited is never going to become ready. An unusable exists() is "unknown": keep waiting.
+  const sessionHasExited = (): boolean => {
     try {
-      return (await runtime.sessionExists(sessionName)) === false
+      return runtime.exists(sessionName) === false
     } catch {
       return false
     }
@@ -78,12 +78,12 @@ export async function waitForReady(options: ReadinessOptions): Promise<boolean> 
       return false
     }
     // Report an exit distinctly instead of burning the whole window and blaming a timeout.
-    if (await sessionHasExited()) {
+    if (sessionHasExited()) {
       console.error(`[Ensemble] ${sessionName} exited before becoming ready (${Math.round((now() - start) / 1000)}s)`)
       return false
     }
     try {
-      const output = await runtime.capturePane(sessionName, 50)
+      const output = runtime.screen(sessionName, 50)
       const found = gates.find(({ gate, pattern }) =>
         pattern.test(output) && (gateAttempts.get(gate.name) ?? 0) < MAX_GATE_ATTEMPTS
       )
@@ -95,7 +95,7 @@ export async function waitForReady(options: ReadinessOptions): Promise<boolean> 
             ? { ...(gate.literal ? { literal: true } : {}), ...(gate.enter ? { enter: true } : {}) }
             : undefined
           for (const key of gateKeys(gate, env)) {
-            await runtime.sendKeys(sessionName, key, sendOptions)
+            runtime.sendKeys(sessionName, key, sendOptions)
           }
           const attempts = (gateAttempts.get(gate.name) ?? 0) + 1
           gateAttempts.set(gate.name, attempts)

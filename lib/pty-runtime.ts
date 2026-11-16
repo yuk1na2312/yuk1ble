@@ -1,10 +1,10 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync } from 'fs'
 import { basename, join } from 'path'
 import headless from '@xterm/headless'
 import type { Terminal as HeadlessTerminal } from '@xterm/headless'
 import * as pty from 'node-pty'
-import type { AgentRuntime, DiscoveredSession } from './agent-runtime'
-import { findOnPath, killProcessTree, killProcessTreeSync, quotePowerShell } from './win-process'
+import type { AgentRuntime, SendKeysOptions, SessionInfo } from './agent-runtime'
+import { findOnPath, killProcessTree, killProcessTreeSync } from './win-process'
 import { listAgentPrograms } from './agent-config'
 
 const { Terminal } = headless
@@ -18,9 +18,15 @@ interface PtySession {
   term: HeadlessTerminal
   scrollback: string
   exited: boolean
+  /** Exit listeners have fired and every listener is dropped. */
+  ended: boolean
+  dataListeners: Set<(chunk: string) => void>
+  exitListeners: Set<() => void>
 }
 
-const MAX_SCROLLBACK = 200_000
+export const MAX_SCROLLBACK = 200_000
+/** Per session and per kind: a runaway client cannot pile up listeners (each one is a retained closure). */
+export const MAX_LISTENERS = 16
 const sessions = new Map<string, PtySession>()
 
 /**
@@ -77,11 +83,28 @@ function getSession(name: string): PtySession {
   return session
 }
 
-function validateEnvironmentKey(key: string): string {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-    throw new Error(`Invalid environment variable name: ${key}`)
+/** Tell the exit listeners once, then drop every listener so the session holds nothing on to its subscribers. */
+function endSession(session: PtySession): void {
+  if (session.ended) return
+  session.ended = true
+  const listeners = [...session.exitListeners]
+  session.dataListeners.clear()
+  session.exitListeners.clear()
+  for (const listener of listeners) {
+    try {
+      listener()
+    } catch (err) {
+      console.error(`[PtyRuntime] exit listener of ${session.name} threw:`, err)
+    }
   }
-  return key
+}
+
+function subscribe<T>(set: Set<T>, listener: T, name: string, kind: string): () => void {
+  if (set.size >= MAX_LISTENERS) {
+    throw new Error(`Too many ${kind} listeners on PTY session ${name} (max ${MAX_LISTENERS})`)
+  }
+  set.add(listener)
+  return () => { set.delete(listener) }
 }
 
 async function killAll(): Promise<void> {
@@ -90,6 +113,7 @@ async function killAll(): Promise<void> {
 
   await Promise.all(activeSessions.map(async session => {
     session.exited = true
+    endSession(session)
     try {
       session.pty.kill()
     } catch {
@@ -112,38 +136,23 @@ process.once('SIGTERM', () => {
 })
 
 export class PtyRuntime implements AgentRuntime {
-  readonly type = 'direct'
-
-  async listSessions(): Promise<DiscoveredSession[]> {
+  list(): SessionInfo[] {
     return [...sessions.values()]
       .filter(session => !session.exited)
       .map(session => ({
         name: session.name,
-        windows: 1,
         createdAt: session.createdAt,
         workingDirectory: session.cwd,
       }))
   }
 
-  async sessionExists(name: string): Promise<boolean> {
-    return sessionExistsSync(name)
-  }
-
-  async getWorkingDirectory(name: string): Promise<string> {
+  exists(name: string): boolean {
     const session = sessions.get(name)
-    return session && !session.exited ? session.cwd : ''
+    return Boolean(session && !session.exited)
   }
 
-  async isInCopyMode(_name: string): Promise<boolean> {
-    return false
-  }
-
-  async cancelCopyMode(_name: string): Promise<void> {
-    // Copy mode is a tmux concept and does not apply to an in-process PTY.
-  }
-
-  async createSession(name: string, cwd: string): Promise<void> {
-    if (sessionExistsSync(name)) {
+  async create(name: string, cwd: string): Promise<void> {
+    if (this.exists(name)) {
       throw new Error(`PTY session already exists: ${name}`)
     }
 
@@ -186,6 +195,9 @@ export class PtyRuntime implements AgentRuntime {
       term,
       scrollback: '',
       exited: false,
+      ended: false,
+      dataListeners: new Set(),
+      exitListeners: new Set(),
     }
 
     terminal.onData(chunk => {
@@ -193,6 +205,15 @@ export class PtyRuntime implements AgentRuntime {
       session.scrollback += chunk
       if (session.scrollback.length > MAX_SCROLLBACK) {
         session.scrollback = session.scrollback.slice(-MAX_SCROLLBACK)
+      }
+      for (const listener of session.dataListeners) {
+        try {
+          listener(chunk)
+        } catch (err) {
+          // A listener that throws would throw on every chunk: drop it.
+          session.dataListeners.delete(listener)
+          console.error(`[PtyRuntime] data listener of ${name} threw and was removed:`, err)
+        }
       }
     })
 
@@ -202,16 +223,18 @@ export class PtyRuntime implements AgentRuntime {
       if (sessions.get(session.name) === session) {
         sessions.delete(session.name)
       }
+      endSession(session)
     })
 
     sessions.set(name, session)
   }
 
-  async killSession(name: string): Promise<void> {
+  async kill(name: string): Promise<void> {
     const session = sessions.get(name)
     if (!session) return
 
     session.exited = true
+    endSession(session)
     try {
       session.pty.kill()
     } catch {
@@ -221,15 +244,11 @@ export class PtyRuntime implements AgentRuntime {
     sessions.delete(name)
   }
 
-  async renameSession(oldName: string, newName: string): Promise<void> {
-    renameSessionSync(oldName, newName)
+  write(name: string, data: string): void {
+    getSession(name).pty.write(data)
   }
 
-  async sendKeys(
-    name: string,
-    keys: string,
-    opts: { literal?: boolean; enter?: boolean } = {}
-  ): Promise<void> {
+  sendKeys(name: string, keys: string, opts: SendKeysOptions = {}): void {
     const session = getSession(name)
     const tokens = keys.split(' ')
     const allTokensAreMapped = tokens.every(token =>
@@ -242,6 +261,13 @@ export class PtyRuntime implements AgentRuntime {
     session.pty.write(opts.enter ? `${bytes}\r` : bytes)
   }
 
+  paste(name: string, text: string): void {
+    const session = getSession(name)
+    // Two writes on purpose: the CR must not travel inside the paste burst (see lib/paste-submit.ts).
+    session.pty.write(text)
+    session.pty.write('\r')
+  }
+
   resize(name: string, cols: number, rows: number): void {
     if (!Number.isInteger(cols) || cols <= 0 || !Number.isInteger(rows) || rows <= 0) {
       throw new Error(`Invalid PTY dimensions: ${cols}x${rows}`)
@@ -251,13 +277,7 @@ export class PtyRuntime implements AgentRuntime {
     session.term.resize(cols, rows)
   }
 
-  async pasteFromFile(name: string, filePath: string): Promise<void> {
-    const session = getSession(name)
-    session.pty.write(readFileSync(filePath, 'utf8'))
-    session.pty.write('\r')
-  }
-
-  async capturePane(name: string, lines: number = 2000): Promise<string> {
+  screen(name: string, lines: number = 2000): string {
     const session = sessions.get(name)
     if (!session || session.exited) return ''
 
@@ -272,49 +292,16 @@ export class PtyRuntime implements AgentRuntime {
     return output.join('\n')
   }
 
-  async setEnvironment(name: string, key: string, value: string): Promise<void> {
-    const session = getSession(name)
-    const safeKey = validateEnvironmentKey(key)
-    session.pty.write(`$env:${safeKey}=${quotePowerShell(value)}\r`)
+  replay(name: string): string {
+    const session = sessions.get(name)
+    return session && !session.exited ? session.scrollback : ''
   }
 
-  async unsetEnvironment(name: string, key: string): Promise<void> {
-    const session = getSession(name)
-    const safeKey = validateEnvironmentKey(key)
-    session.pty.write(`Remove-Item Env:\\${safeKey} -ErrorAction SilentlyContinue\r`)
+  onData(name: string, cb: (chunk: string) => void): () => void {
+    return subscribe(getSession(name).dataListeners, cb, name, 'data')
   }
 
-  getAttachCommand(_name: string, _socketPath?: string): { command: string; args: string[] } {
-    return { command: '', args: [] }
+  onExit(name: string, cb: () => void): () => void {
+    return subscribe(getSession(name).exitListeners, cb, name, 'exit')
   }
-}
-
-export function sessionExistsSync(name: string, _socketPath?: string): boolean {
-  const session = sessions.get(name)
-  return Boolean(session && !session.exited)
-}
-
-export function killSessionSync(name: string): void {
-  const session = sessions.get(name)
-  if (!session) return
-
-  session.exited = true
-  sessions.delete(name)
-  try {
-    session.pty.kill()
-  } catch {
-    // The process may already have exited.
-  }
-  killProcessTreeSync(session.pid)
-}
-
-export function renameSessionSync(oldName: string, newName: string): void {
-  const session = getSession(oldName)
-  if (sessionExistsSync(newName)) {
-    throw new Error(`PTY session already exists: ${newName}`)
-  }
-
-  sessions.delete(oldName)
-  session.name = newName
-  sessions.set(newName, session)
 }

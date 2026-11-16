@@ -292,9 +292,11 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     }))
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
-        capturePane: vi.fn(),
+        screen: vi.fn(() => ''),
         sendKeys: vi.fn(),
-        pasteFromFile: vi.fn(),
+        paste: vi.fn(),
+        exists: vi.fn(() => true),
+        onData: vi.fn(() => () => {}),
       })),
     }))
     vi.doMock('../lib/agent-config', () => ({
@@ -619,9 +621,11 @@ describe('worktree isolation lifecycle', () => {
     }))
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
-        capturePane: vi.fn(async () => '>'),
-        sendKeys: vi.fn(async () => {}),
-        pasteFromFile: vi.fn(async () => {}),
+        screen: vi.fn(() => '>'),
+        sendKeys: vi.fn(() => {}),
+        paste: vi.fn(() => {}),
+        exists: vi.fn(() => true),
+        onData: vi.fn(() => () => {}),
       })),
     }))
     vi.doMock('../lib/agent-config', () => ({
@@ -631,7 +635,6 @@ describe('worktree isolation lifecycle', () => {
     vi.doMock('../lib/collab-paths', () => ({
       ensureCollabDirs: vi.fn(),
       collabPromptFile: vi.fn((teamId: string, agentName: string) => path.join(tempRoot, `${teamId}-${agentName}.prompt.txt`)),
-      collabDeliveryFile: vi.fn((teamId: string, sessionName: string) => path.join(tempRoot, `${teamId}-${sessionName}.delivery.txt`)),
       collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
       collabRuntimeDir: vi.fn((teamId: string) => path.join(tempRoot, teamId)),
       collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),
@@ -787,9 +790,11 @@ describe('staged workflow integration', () => {
 
   async function setupStagedService(team: EnsembleTeam) {
     const runtime = {
-      capturePane: vi.fn(async () => '>'),
-      sendKeys: vi.fn(async () => {}),
-      pasteFromFile: vi.fn(async () => {}),
+      screen: vi.fn(() => '>'),
+      sendKeys: vi.fn(() => {}),
+      paste: vi.fn(() => {}),
+        exists: vi.fn(() => true),
+        onData: vi.fn(() => () => {}),
     }
     const runStagedWorkflow = vi.fn(async () => {})
 
@@ -822,7 +827,6 @@ describe('staged workflow integration', () => {
     vi.doMock('../lib/collab-paths', () => ({
       ensureCollabDirs: vi.fn(),
       collabPromptFile: vi.fn((teamId: string, agentName: string) => path.join(tempRoot, `${teamId}-${agentName}.prompt.txt`)),
-      collabDeliveryFile: vi.fn((teamId: string, sessionName: string) => path.join(tempRoot, `${teamId}-${sessionName}.delivery.txt`)),
       collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
       collabRuntimeDir: vi.fn((teamId: string) => path.join(tempRoot, teamId)),
       collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),

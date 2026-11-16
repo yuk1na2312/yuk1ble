@@ -191,8 +191,8 @@ const server = http.createServer(async (req, res) => {
       const requested = Number(url.searchParams.get('lines'))
       const lines = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 500) : 60
       const runtime = getRuntime()
-      const exists = await runtime.sessionExists(sessionName)
-      const pane = exists ? await runtime.capturePane(sessionName, lines) : ''
+      const exists = runtime.exists(sessionName)
+      const pane = exists ? runtime.screen(sessionName, lines) : ''
       return json(res, { session: sessionName, exists, pane }, 200, origin)
     }
 

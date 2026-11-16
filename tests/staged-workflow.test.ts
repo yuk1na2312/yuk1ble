@@ -63,18 +63,15 @@ describe('StagedWorkflowManager', () => {
     }))
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
-        sendKeys: vi.fn(async (session: string, text: string) => {
+        sendKeys: vi.fn((session: string, text: string) => {
           delivered.push({ session, text })
         }),
-        pasteFromFile: vi.fn(async () => {}),
+        paste: vi.fn(() => {}),
       })),
     }))
     vi.doMock('../lib/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
-    }))
-    vi.doMock('../lib/collab-paths', () => ({
-      collabDeliveryFile: vi.fn(() => '/tmp/unused'),
     }))
     vi.doMock('../lib/agent-spawner', () => ({
     }))

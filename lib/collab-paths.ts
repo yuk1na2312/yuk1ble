@@ -48,11 +48,6 @@ export function collabPromptFile(teamId: string, agentName: string): string {
   return path.join(RUNTIME_ROOT, teamId, 'prompts', `${agentName}.txt`)
 }
 
-/** Per-session delivery file */
-export function collabDeliveryFile(teamId: string, sessionName: string): string {
-  return path.join(RUNTIME_ROOT, teamId, 'delivery', `${sessionName}.txt`)
-}
-
 /** Finished marker (written on disband, signals cleanup) */
 export function collabFinishedMarker(teamId: string): string {
   return path.join(RUNTIME_ROOT, teamId, '.finished')
@@ -63,5 +58,4 @@ export function ensureCollabDirs(teamId: string): void {
   const base = collabRuntimeDir(teamId)
   fs.mkdirSync(base, { recursive: true })
   fs.mkdirSync(path.join(base, 'prompts'), { recursive: true })
-  fs.mkdirSync(path.join(base, 'delivery'), { recursive: true })
 }

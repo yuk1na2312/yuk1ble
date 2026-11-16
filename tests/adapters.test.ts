@@ -41,8 +41,8 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-async function spawner(capturePane?: (session: string, lines?: number) => Promise<string>) {
-  vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => ({ capturePane })), setRuntime: vi.fn() }))
+async function spawner(screen?: (session: string, lines?: number) => string) {
+  vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => ({ screen })), setRuntime: vi.fn() }))
   return import('../lib/agent-spawner')
 }
 
@@ -105,12 +105,12 @@ describe('token usage patterns come from the adapter', () => {
     ['claude', 'nothing relevant on screen', 'unknown'],
     ['gemini', '73% left, 12k tokens', 'unknown'], // gemini's adapter lists no usage patterns
   ])('%s reading %j gives %j', async (program, screen, expected) => {
-    const { getAgentTokenUsage } = await spawner(async () => screen)
+    const { getAgentTokenUsage } = await spawner(() => screen)
     expect(await getAgentTokenUsage('session', program)).toBe(expected)
   })
 
   it('answers unknown when the session cannot be read', async () => {
-    const { getAgentTokenUsage } = await spawner(async () => { throw new Error('PTY session not found') })
+    const { getAgentTokenUsage } = await spawner(() => { throw new Error('PTY session not found') })
     expect(await getAgentTokenUsage('session', 'claude')).toBe('unknown')
   })
 })
@@ -121,15 +121,16 @@ function scriptedAgent(screens: string[], sticky = false) {
   let polls = 0
   const sent: Array<{ keys: string; opts?: { literal?: boolean; enter?: boolean }; atPoll: number }> = []
   const runtime = {
-    capturePane: vi.fn(async () => {
+    screen: vi.fn(() => {
       const screen = screens[Math.min(polls, screens.length - 1)]
       polls++
       return sticky ? screens[0] : screen
     }),
-    sendKeys: vi.fn(async (_session: string, keys: string, opts?: { literal?: boolean; enter?: boolean }) => {
+    sendKeys: vi.fn((_session: string, keys: string, opts?: { literal?: boolean; enter?: boolean }) => {
       sent.push({ keys, opts, atPoll: polls })
     }),
-    sessionExists: vi.fn(async () => true),
+    exists: vi.fn(() => true),
+    onData: vi.fn(() => () => {}),
   }
   return {
     runtime, sent, polls: () => polls, elapsed: () => clock,
@@ -213,10 +214,10 @@ describe('gates loaded from agents.json answer with the same keys as before', ()
       runtime: aborted.runtime, sessionName: 's', readyMarkers: adapter.readyMarkers, gates: adapter.gates ?? [],
       isAborted: () => true, abortReason: 'disbanded', maxWaitMs: 5000, quiescentMs: 20_000, ...aborted.clock,
     })).toBe(false)
-    expect(aborted.runtime.capturePane).not.toHaveBeenCalled()
+    expect(aborted.runtime.screen).not.toHaveBeenCalled()
 
     const exited = scriptedAgent([CLAUDE_TRUST_SCREEN])
-    exited.runtime.sessionExists.mockResolvedValue(false)
+    exited.runtime.exists.mockReturnValue(false)
     expect(await ready('claude', exited)).toBe(false)
     expect(exited.sent).toEqual([])
   })
@@ -269,8 +270,8 @@ describe('a CLI that exists only as an agents.json entry', () => {
     const panes = ['> [zz pasted 4 lines]', '> ']
     let i = 0
     const runtime = {
-      capturePane: vi.fn(async () => panes[Math.min(i++, panes.length - 1)]),
-      sendKeys: vi.fn(async () => {}),
+      screen: vi.fn(() => panes[Math.min(i++, panes.length - 1)]),
+      sendKeys: vi.fn(() => {}),
     }
 
     const done = ensureSubmitted(runtime, 's-zz', adapter.pasteMarker)
@@ -289,7 +290,7 @@ describe('a CLI that exists only as an agents.json entry', () => {
   })
 
   it('has its token usage read by its own pattern', async () => {
-    const { getAgentTokenUsage } = await spawner(async () => 'zz used 42 so far')
+    const { getAgentTokenUsage } = await spawner(() => 'zz used 42 so far')
     expect(await getAgentTokenUsage('s', 'zzcli')).toBe('42 zz units')
   })
 

@@ -49,11 +49,13 @@ async function waitForHealthy(baseUrl: string): Promise<void> {
 describe('onboarding smoke test', () => {
   const originalEnv = { ...process.env }
   const runtime = {
-    capturePane: vi.fn(async () => '>'),
-    sendKeys: vi.fn(async () => {}),
-    pasteFromFile: vi.fn(async () => {}),
-    createSession: vi.fn(async () => {}),
-    killSession: vi.fn(async () => {}),
+    screen: vi.fn(() => '>'),
+    sendKeys: vi.fn(() => {}),
+    paste: vi.fn(() => {}),
+      exists: vi.fn(() => true),
+        onData: vi.fn(() => () => {}),
+    create: vi.fn(async () => {}),
+    kill: vi.fn(async () => {}),
   }
 
   let tempRoot: string

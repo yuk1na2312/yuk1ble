@@ -43,11 +43,42 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
   process.env.ENSEMBLE_URL = baseUrl
   process.env.ENSEMBLE_AGENTS_CONFIG = FIXTURE_AGENTS_CONFIG
 
+  // Listener registries behind onData/onExit, so a test can push PTY output into a stream and
+  // count what is still subscribed once the clients are gone.
+  const dataListeners = new Map<string, Set<(chunk: string) => void>>()
+  const exitListeners = new Map<string, Set<() => void>>()
+  const subscribe = <T>(registry: Map<string, Set<T>>, session: string, listener: T): (() => void) => {
+    const set = registry.get(session) ?? new Set<T>()
+    registry.set(session, set)
+    set.add(listener)
+    return () => { set.delete(listener) }
+  }
+  const countListeners = (): number =>
+    [...dataListeners.values(), ...exitListeners.values()].reduce((total, set) => total + set.size, 0)
+
   const runtime = {
-    capturePane: vi.fn(async (_session: string, _lines?: number) => '>'),
-    sendKeys: vi.fn(async (_session: string, _keys: string, _opts?: { literal?: boolean; enter?: boolean }) => {}),
-    pasteFromFile: vi.fn(async (_session: string, _file: string) => {}),
-    sessionExists: vi.fn(async (_session: string) => true),
+    screen: vi.fn((_session: string, _lines?: number) => '>'),
+    sendKeys: vi.fn((_session: string, _keys: string, _opts?: { literal?: boolean; enter?: boolean }) => {}),
+    paste: vi.fn((_session: string, _text: string) => {}),
+    write: vi.fn((_session: string, _data: string) => {}),
+    resize: vi.fn((_session: string, _cols: number, _rows: number) => {}),
+    exists: vi.fn((_session: string) => true),
+    replay: vi.fn((_session: string) => ''),
+    onData: vi.fn((session: string, listener: (chunk: string) => void) => subscribe(dataListeners, session, listener)),
+    onExit: vi.fn((session: string, listener: () => void) => subscribe(exitListeners, session, listener)),
+  }
+  /** What a real session does: PTY output reaches every data listener, and ending drops them all. */
+  const pty = {
+    emit: (session: string, chunk: string) => {
+      for (const listener of [...(dataListeners.get(session) ?? [])]) listener(chunk)
+    },
+    end: (session: string) => {
+      const listeners = [...(exitListeners.get(session) ?? [])]
+      dataListeners.delete(session)
+      exitListeners.delete(session)
+      for (const listener of listeners) listener()
+    },
+    listenerCount: countListeners,
   }
   const spawnLocalAgent = vi.fn(async ({ name }: { name: string }) => ({ id: `${name}-id` }))
 
@@ -79,6 +110,7 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
     baseUrl,
     tempRoot,
     runtime,
+    pty,
     spawnLocalAgent,
     /** The same store module instance the running server uses. */
     store: () => import('../../lib/ensemble-registry'),

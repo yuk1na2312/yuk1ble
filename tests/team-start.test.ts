@@ -33,10 +33,11 @@ describe('team startup in the background', () => {
   } = {}) {
     const killLocalAgent = vi.fn(async () => {})
     const runtime = {
-      sessionExists: vi.fn(async () => true),
-      capturePane: vi.fn(async () => '>'),
-      sendKeys: vi.fn(async () => {}),
-      pasteFromFile: vi.fn(async () => {}),
+      screen: vi.fn(() => '>'),
+      sendKeys: vi.fn(() => {}),
+      paste: vi.fn(() => {}),
+      exists: vi.fn(() => true),
+      onData: vi.fn(() => () => {}),
     }
     vi.doMock('../lib/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(options.spawn ?? (async ({ name }: { name: string }) => ({ id: `${name}-id` }))),

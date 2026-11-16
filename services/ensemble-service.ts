@@ -22,7 +22,7 @@ import { waitForReady as waitForReadyScreen } from '../lib/readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
 import { bus } from '../lib/bus'
 import {
-  collabPromptFile, collabDeliveryFile, collabSummaryFile,
+  collabPromptFile, collabSummaryFile,
   collabRuntimeDir, collabFinishedMarker,
   ensureCollabDirs, scrubCollabRuntimePaths,
 } from '../lib/collab-paths'
@@ -89,7 +89,6 @@ class EnsembleService {
       appendMessage,
       getRuntime,
       resolveAgentProgram,
-      collabDeliveryFile,
       markAgentStalled: (teamId: string, agentName: string, stalledAt: string) => {
         const team = getTeam(teamId)
         if (!team) return
@@ -485,9 +484,9 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
   if (activeAgents.length >= 2) {
     const runtime = getRuntime()
 
-    const sessionHasExited = async (sessionName: string): Promise<boolean> => {
+    const sessionHasExited = (sessionName: string): boolean => {
       try {
-        return (await runtime.sessionExists(sessionName)) === false
+        return runtime.exists(sessionName) === false
       } catch {
         return false
       }
@@ -536,10 +535,10 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
     // Inject into every agent whose session is still alive — "not ready" is only
     // best-effort evidence, but a dead session is definitive: pasting into it just
     // raises "PTY session not found" and buries the real cause.
-    const liveness = await Promise.all(readyResults.map(async result => ({
+    const liveness = readyResults.map(result => ({
       result,
-      alive: !(await sessionHasExited(result.sessionName)),
-    })))
+      alive: !sessionHasExited(result.sessionName),
+    }))
     for (const { result } of liveness.filter(entry => !entry.alive)) {
       console.error(`[Ensemble] ${result.sessionName} has no live session — skipping prompt injection`)
       appendMessage(team.id, {
@@ -618,11 +617,11 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
           const promptFile = collabPromptFile(team.id, agent.name)
           try {
             const agentCfg = resolveAgentProgram(agent.program)
+            const prompt = fs.readFileSync(promptFile, 'utf-8')
             if (agentCfg?.inputMethod === 'pasteFromFile') {
-              await runtime.pasteFromFile(sessionName, promptFile)
+              runtime.paste(sessionName, prompt)
             } else {
-              const prompt = fs.readFileSync(promptFile, 'utf-8')
-              await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
+              runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
             }
             await ensureSubmitted(runtime, sessionName, agentCfg?.pasteMarker)
             console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
@@ -676,8 +675,7 @@ export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ mes
 
 /**
  * Deliveries to one session run one at a time. Two messages for the same agent
- * (a teammate and the GUI, say) would otherwise share its delivery file and
- * interleave their pastes in the composer. Different sessions run in parallel.
+ * (a teammate and the GUI, say) would otherwise interleave their pastes in the composer. Different sessions run in parallel.
  */
 const sessionQueues = new Map<string, Promise<void>>()
 /** Deliveries waiting (or running) per session. Bounded: an agent looping on team-say cannot grow the queue without limit. */
@@ -745,8 +743,7 @@ export async function sendTeamMessage(
     return runExclusive(sessionName, async () => {
       try {
         // Skip delivery if the agent's terminal session no longer exists (agent finished and exited)
-        const paneAlive = await runtime.sessionExists(sessionName)
-        if (!paneAlive) return
+        if (!runtime.exists(sessionName)) return
 
         // Wrap message with sender context + response nudge
         const deliveryText = [
@@ -754,12 +751,9 @@ export async function sendTeamMessage(
           `→ Respond with team-say. Then run team-read to check for more messages.`,
         ].join('\n')
 
-        // Always use pasteFromFile for message delivery to avoid shell escaping
+        // Always paste for message delivery to avoid shell escaping
         // issues (typed input breaks on ?, !, `, $ and \ in PowerShell)
-        const tmpFile = collabDeliveryFile(teamId, sessionName)
-        fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
-        fs.writeFileSync(tmpFile, deliveryText)
-        await runtime.pasteFromFile(sessionName, tmpFile)
+        runtime.paste(sessionName, deliveryText)
         await ensureSubmitted(runtime, sessionName, resolveAgentProgram(targetAgent.program)?.pasteMarker)
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
@@ -902,12 +896,6 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
   try {
     fs.mkdirSync(collabRuntimeDir(teamId), { recursive: true })
     fs.writeFileSync(collabFinishedMarker(teamId), new Date().toISOString())
-  } catch { /* non-fatal cleanup */ }
-
-  // Soft cleanup: remove ephemeral delivery files, keep summary and prompts
-  try {
-    const deliveryDir = path.join(collabRuntimeDir(teamId), 'delivery')
-    if (fs.existsSync(deliveryDir)) fs.rmSync(deliveryDir, { recursive: true, force: true })
   } catch { /* non-fatal cleanup */ }
 
   return { data: { team: updated! }, status: 200 }

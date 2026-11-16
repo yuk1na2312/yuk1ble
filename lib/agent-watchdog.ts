@@ -1,5 +1,3 @@
-import fs from 'fs'
-import path from 'path'
 import { randomUUID } from 'crypto'
 import type { AgentRuntime } from './agent-runtime'
 import { ensureSubmitted } from './paste-submit'
@@ -20,11 +18,10 @@ interface AgentWatchdogDeps {
   loadTeams: () => EnsembleTeam[]
   getMessages: (teamId: string) => EnsembleMessage[]
   appendMessage: (teamId: string, message: EnsembleMessage) => void
-  getRuntime: () => Pick<AgentRuntime, 'sendKeys' | 'pasteFromFile' | 'sessionExists' | 'capturePane'>
+  getRuntime: () => Pick<AgentRuntime, 'sendKeys' | 'paste' | 'exists' | 'screen'>
   resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys'; pasteMarker?: string } | undefined
   /** Records the stall where API consumers can see it. Optional for tests. */
   markAgentStalled?: (teamId: string, agentName: string, stalledAt: string) => void
-  collabDeliveryFile: (teamId: string, sessionName: string) => string
   now?: () => number
   nudgeAfterMs?: number
   stallAfterMs?: number
@@ -154,12 +151,9 @@ export class AgentWatchdog {
 
   private async nudgeAgent(team: EnsembleTeam, agentName: string, program: string): Promise<void> {
     const sessionName = `${team.name}-${agentName}`
-    // Always use pasteFromFile to avoid shell escaping issues with sendKeys
+    // Always paste to avoid shell escaping issues with sendKeys
     const runtime = this.deps.getRuntime()
-    const filePath = this.deps.collabDeliveryFile(team.id, sessionName)
-    fs.mkdirSync(path.dirname(filePath), { recursive: true })
-    fs.writeFileSync(filePath, WATCHDOG_NUDGE_TEXT)
-    await runtime.pasteFromFile(sessionName, filePath)
+    runtime.paste(sessionName, WATCHDOG_NUDGE_TEXT)
     // A pasted nudge parks in the composer just like any other paste.
     await ensureSubmitted(runtime, sessionName, this.deps.resolveAgentProgram(program)?.pasteMarker)
 
@@ -203,12 +197,12 @@ export class AgentWatchdog {
     const sessionName = `${team.name}-${agentName}`
 
     // Prefer asking the runtime whether the session still exists over
-    // string-matching the error message — pasteFromFile/sendKeys error text
-    // isn't a stable contract, but sessionExists() is part of the
+    // string-matching the error message — paste/sendKeys error text
+    // isn't a stable contract, but exists() is part of the
     // AgentRuntime interface and is authoritative about session liveness.
     let sessionGone = false
     try {
-      sessionGone = !(await this.deps.getRuntime().sessionExists(sessionName))
+      sessionGone = !this.deps.getRuntime().exists(sessionName)
     } catch {
       // Couldn't determine liveness — don't assume the session is gone.
       sessionGone = false

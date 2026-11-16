@@ -109,7 +109,7 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
   const cwd = options.workingDirectory || process.cwd()
 
   // Create the runtime session.
-  await runtime.createSession(sessionName, cwd)
+  await runtime.create(sessionName, cwd)
 
   // Small delay for session init
   await new Promise(r => setTimeout(r, 300))
@@ -117,7 +117,7 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
   // Start the AI program
   const startCommand = resolveStartCommand(options.program, cwd, options.model)
 
-  await runtime.sendKeys(sessionName, startCommand, { literal: true, enter: true })
+  runtime.sendKeys(sessionName, startCommand, { literal: true, enter: true })
 
   console.log(`[Spawner] Agent ${options.name} started in runtime session ${sessionName}`)
 
@@ -137,14 +137,14 @@ export async function killLocalAgent(sessionName: string): Promise<void> {
   const runtime = getRuntime()
   try {
     // Try graceful exit first
-    await runtime.sendKeys(sessionName, 'C-c', { enter: false })
+    runtime.sendKeys(sessionName, 'C-c', { enter: false })
     await new Promise(r => setTimeout(r, 200))
-    await runtime.sendKeys(sessionName, 'exit', { literal: true, enter: true })
+    runtime.sendKeys(sessionName, 'exit', { literal: true, enter: true })
     await new Promise(r => setTimeout(r, 200))
-    await runtime.killSession(sessionName)
+    await runtime.kill(sessionName)
   } catch {
     // Session may already be gone
-    try { await runtime.killSession(sessionName) } catch { /* ok */ }
+    try { await runtime.kill(sessionName) } catch { /* ok */ }
   }
 }
 
@@ -157,7 +157,7 @@ export async function getAgentTokenUsage(sessionName: string, program: string): 
   try {
     const patterns = resolveAgentProgram(program)?.usagePatterns ?? []
     if (patterns.length === 0) return 'unknown'
-    const output = await getRuntime().capturePane(sessionName, 100)
+    const output = getRuntime().screen(sessionName, 100)
 
     for (const { pattern, format } of patterns) {
       const match = output.match(new RegExp(pattern, 'i'))

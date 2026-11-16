@@ -1,51 +1,55 @@
 /**
  * Agent runtime abstraction.
  *
- * Native Windows uses the node-pty-backed direct runtime exclusively.
+ * Native Windows uses the node-pty-backed PtyRuntime exclusively. The interface
+ * is sized to what callers use: everything that only made sense for tmux is gone.
+ *
+ * Only `create` and `kill` are async (they spawn and reap processes). Everything
+ * else is a synchronous call into an in-process session; a missing session
+ * throws from the writers and answers `false` / `''` from the readers.
  */
 
-import {
-  killSessionSync as killPtySessionSync,
-  PtyRuntime,
-  renameSessionSync as renamePtySessionSync,
-  sessionExistsSync as ptySessionExistsSync,
-} from './pty-runtime'
+import { PtyRuntime } from './pty-runtime'
 
-export interface DiscoveredSession {
+export interface SessionInfo {
   name: string
-  windows: number
   createdAt: string
   workingDirectory: string
 }
 
+export interface SendKeysOptions {
+  /** Send `keys` as typed text even when every space-separated token is a named key. */
+  literal?: boolean
+  /** Press Enter after the keys. */
+  enter?: boolean
+}
+
 export interface AgentRuntime {
-  readonly type: 'tmux' | 'happy' | 'docker' | 'api' | 'direct'
-
-  // Discovery
-  listSessions(): Promise<DiscoveredSession[]>
-
-  // Existence / status
-  sessionExists(name: string): Promise<boolean>
-  getWorkingDirectory(name: string): Promise<string>
-  isInCopyMode(name: string): Promise<boolean>
-  cancelCopyMode(name: string): Promise<void>
-
   // Lifecycle
-  createSession(name: string, cwd: string): Promise<void>
-  killSession(name: string): Promise<void>
-  renameSession(oldName: string, newName: string): Promise<void>
+  create(name: string, cwd: string): Promise<void>
+  /** Kills the session's whole process tree. A session that is already gone is not an error. */
+  kill(name: string): Promise<void>
+  exists(name: string): boolean
+  list(): SessionInfo[]
 
-  // I/O
-  sendKeys(name: string, keys: string, opts?: { literal?: boolean; enter?: boolean }): Promise<void>
-  pasteFromFile(name: string, filePath: string): Promise<void>
-  capturePane(name: string, lines?: number): Promise<string>
+  // Input
+  /** Raw bytes, exactly as given. */
+  write(name: string, data: string): void
+  /** Named keys ("Enter", "C-c", "Down" ...) or, with `literal`, typed text. */
+  sendKeys(name: string, keys: string, opts?: SendKeysOptions): void
+  /** The text, then a CR as a separate write. A paste alone never submits: see lib/paste-submit.ts. */
+  paste(name: string, text: string): void
+  resize(name: string, cols: number, rows: number): void
 
-  // Environment
-  setEnvironment(name: string, key: string, value: string): Promise<void>
-  unsetEnvironment(name: string, key: string): Promise<void>
-
-  // PTY
-  getAttachCommand(name: string, socketPath?: string): { command: string; args: string[] }
+  // Output
+  /** The rendered screen (not raw bytes), last `lines` lines. '' when the session is gone. */
+  screen(name: string, lines?: number): string
+  /** Bounded raw scrollback, for a terminal that connects mid-run. '' when the session is gone. */
+  replay(name: string): string
+  /** Raw PTY chunks as they arrive. Returns the unsubscribe function. Throws when the session is gone or has too many listeners. */
+  onData(name: string, cb: (chunk: string) => void): () => void
+  /** Called once when the session ends. Returns the unsubscribe function. */
+  onExit(name: string, cb: () => void): () => void
 }
 
 let defaultRuntime: AgentRuntime = new PtyRuntime()
@@ -56,16 +60,4 @@ export function getRuntime(): AgentRuntime {
 
 export function setRuntime(runtime: AgentRuntime): void {
   defaultRuntime = runtime
-}
-
-export function sessionExistsSync(name: string, socketPath?: string): boolean {
-  return ptySessionExistsSync(name, socketPath)
-}
-
-export function killSessionSync(name: string): void {
-  killPtySessionSync(name)
-}
-
-export function renameSessionSync(oldName: string, newName: string): void {
-  renamePtySessionSync(oldName, newName)
 }

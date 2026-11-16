@@ -1,7 +1,7 @@
 /**
  * Regression tests for agent startup readiness.
  *
- * Both screens below are verbatim `capturePane` output from a real Codex
+ * Both screens below are verbatim `screen` output from a real Codex
  * v0.147 session launched through PtyRuntime. The bug they pin: Codex's
  * readyMarker used to be "›", which is also the selection cursor on its
  * "Hooks need review" startup gate — so ensemble reported "codex-1 is ready
@@ -140,18 +140,19 @@ describe('startup gate auto-confirm', () => {
     const pasteCalls: Array<{ session: string; pollAtPaste: number }> = []
 
     const runtime = {
-      capturePane: vi.fn(async (session: string) => {
+      screen: vi.fn((session: string) => {
         const n = (pollsPerSession.get(session) ?? 0) + 1
         pollsPerSession.set(session, n)
         return n <= 3 ? gateScreen : readyScreen
       }),
-      sendKeys: vi.fn(async (session: string, keys: string, opts?: unknown) => {
+      sendKeys: vi.fn((session: string, keys: string, opts?: unknown) => {
         sendKeysCalls.push({ session, keys, opts, pollAtSend: pollsPerSession.get(session) ?? 0 })
       }),
-      pasteFromFile: vi.fn(async (session: string) => {
+      paste: vi.fn((session: string) => {
         pasteCalls.push({ session, pollAtPaste: pollsPerSession.get(session) ?? 0 })
       }),
-      sessionExists: vi.fn(async () => true),
+      exists: vi.fn(() => true),
+      onData: vi.fn(() => () => {}),
     }
 
     vi.doMock('../lib/ensemble-registry', () => ({
@@ -172,7 +173,6 @@ describe('startup gate auto-confirm', () => {
       ensureCollabDirs: vi.fn(),
       scrubCollabRuntimePaths: vi.fn((s: string) => s),
       collabPromptFile: vi.fn((t: string, a: string) => path.join(tempRoot, `${t}-${a}.prompt.txt`)),
-      collabDeliveryFile: vi.fn((t: string, s: string) => path.join(tempRoot, `${t}-${s}.delivery.txt`)),
       collabSummaryFile: vi.fn((t: string) => path.join(tempRoot, `${t}.summary.txt`)),
       collabMessagesFile: vi.fn((t: string) => path.join(tempRoot, `${t}.messages.jsonl`)),
       collabRuntimeDir: vi.fn((t: string) => path.join(tempRoot, t)),

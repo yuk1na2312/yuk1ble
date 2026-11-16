@@ -13,7 +13,7 @@ async function waitForCapture(
   const deadline = Date.now() + timeoutMs
   let output = ''
   while (Date.now() < deadline) {
-    output = await runtime.capturePane(sessionName, 60)
+    output = runtime.screen(sessionName, 60)
     if (predicate(output)) return output
     await new Promise(resolve => setTimeout(resolve, 50))
   }
@@ -22,16 +22,16 @@ async function waitForCapture(
 
 afterEach(async () => {
   await Promise.all([...activeSessions].map(async sessionName => {
-    await runtime.killSession(sessionName)
+    await runtime.kill(sessionName)
     activeSessions.delete(sessionName)
   }))
 })
 
-describe('PtyRuntime capturePane()', () => {
+describe('PtyRuntime screen()', () => {
   it('returns the rendered screen without ANSI redraw artifacts', async () => {
     const sessionName = `capture-pane-${process.pid}-${Date.now()}`
     activeSessions.add(sessionName)
-    await runtime.createSession(sessionName, os.tmpdir())
+    await runtime.create(sessionName, os.tmpdir())
     await waitForCapture(sessionName, output => />\s*$/.test(output))
 
     // The marker is assembled by PowerShell at runtime, so the literal
@@ -39,7 +39,7 @@ describe('PtyRuntime capturePane()', () => {
     // A naive `echo MARKER` lets the echoed command satisfy the wait predicate,
     // so the assertion below would pass even if the 3x PSReadLine redraw
     // regression returned — the marker has to come from *output* only.
-    await runtime.sendKeys(sessionName, "Write-Host ('ANSI'+'PROBE'+'9137')", {
+    runtime.sendKeys(sessionName, "Write-Host ('ANSI'+'PROBE'+'9137')", {
       literal: true,
       enter: true,
     })
@@ -54,7 +54,7 @@ describe('PtyRuntime capturePane()', () => {
     const echoedCommand = output.match(/'ANSI'\+'PROBE'\+'9137'/g)?.length ?? 0
 
     console.log(
-      `capturePane regression: ESC=${escCount}, marker=${markerCount}, echoed=${echoedCommand}`,
+      `screen regression: ESC=${escCount}, marker=${markerCount}, echoed=${echoedCommand}`,
     )
     expect(escCount).toBe(0)
     // Exactly one rendered marker: the command echo cannot contribute, and a
@@ -67,11 +67,11 @@ describe('PtyRuntime capturePane()', () => {
   it('preserves literal spaces in unmapped non-literal input after resize', async () => {
     const sessionName = `send-keys-${process.pid}-${Date.now()}`
     activeSessions.add(sessionName)
-    await runtime.createSession(sessionName, os.tmpdir())
+    await runtime.create(sessionName, os.tmpdir())
     runtime.resize(sessionName, 100, 30)
     await waitForCapture(sessionName, output => />\s*$/.test(output))
 
-    await runtime.sendKeys(sessionName, 'echo SPACE PRESERVED', { enter: true })
+    runtime.sendKeys(sessionName, 'echo SPACE PRESERVED', { enter: true })
     const output = await waitForCapture(
       sessionName,
       capture => capture.includes('SPACE PRESERVED'),
@@ -89,11 +89,11 @@ describe('PtyRuntime environment', () => {
     try {
       const sessionName = `env-strip-${process.pid}-${Date.now()}`
       activeSessions.add(sessionName)
-      await runtime.createSession(sessionName, os.tmpdir())
+      await runtime.create(sessionName, os.tmpdir())
       await waitForCapture(sessionName, output => />\s*$/.test(output))
 
       // The marker is assembled at runtime, so only output can contain it, never the echoed command.
-      await runtime.sendKeys(
+      runtime.sendKeys(
         sessionName,
         "Write-Host ('ENV'+'PROBE['+$env:OPENAI_API_KEY+']['+$env:ENSEMBLE_ENV_PROBE+']')",
         { literal: true, enter: true },

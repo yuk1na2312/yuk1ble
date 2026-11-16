@@ -1,11 +1,9 @@
-import fs from 'fs'
-import os from 'os'
-import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
 import {
   AgentWatchdog,
   getWatchdogNudgeMs,
+  WATCHDOG_NUDGE_TEXT,
   getWatchdogStallMs,
 } from '../lib/agent-watchdog'
 
@@ -48,16 +46,15 @@ function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage 
 describe('AgentWatchdog', () => {
   const originalNudgeMs = process.env.ENSEMBLE_WATCHDOG_NUDGE_MS
   const originalStallMs = process.env.ENSEMBLE_WATCHDOG_STALL_MS
-  const deliveryRoot = path.join(os.tmpdir(), `ensemble-watchdog-${process.pid}`)
 
   let nowMs: number
   let teams: EnsembleTeam[]
   let messages: EnsembleMessage[]
   let appended: EnsembleMessage[]
   let sendKeys: ReturnType<typeof vi.fn>
-  let pasteFromFile: ReturnType<typeof vi.fn>
-  let sessionExists: ReturnType<typeof vi.fn>
-  let capturePane: ReturnType<typeof vi.fn>
+  let paste: ReturnType<typeof vi.fn>
+  let exists: ReturnType<typeof vi.fn>
+  let screen: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -65,14 +62,13 @@ describe('AgentWatchdog', () => {
     teams = [makeTeam()]
     messages = [makeMessage({ timestamp: '2026-03-19T10:00:00.000Z' })]
     appended = []
-    sendKeys = vi.fn(async () => {})
-    pasteFromFile = vi.fn(async () => {})
-    sessionExists = vi.fn(async () => true)
-    capturePane = vi.fn(async () => '> ')
+    sendKeys = vi.fn(() => {})
+    paste = vi.fn(() => {})
+    exists = vi.fn(() => true)
+    screen = vi.fn(() => '> ')
   })
 
   afterEach(() => {
-    fs.rmSync(deliveryRoot, { recursive: true, force: true })
     if (originalNudgeMs === undefined) {
       delete process.env.ENSEMBLE_WATCHDOG_NUDGE_MS
     } else {
@@ -90,12 +86,10 @@ describe('AgentWatchdog', () => {
       loadTeams: () => teams,
       getMessages: () => messages,
       appendMessage: (_teamId, message) => appended.push(message),
-      // capturePane returns a composer-free screen so ensureSubmitted is a no-op
+      // screen returns a composer-free screen so ensureSubmitted is a no-op
       // here; the paste-submit behaviour has its own tests.
-      getRuntime: () => ({ sendKeys, pasteFromFile, sessionExists, capturePane }),
+      getRuntime: () => ({ sendKeys, paste, exists, screen }),
       resolveAgentProgram: () => ({ inputMethod: 'sendKeys' }),
-      collabDeliveryFile: (teamId, sessionName) =>
-        path.join(deliveryRoot, teamId, `${sessionName}.txt`),
       now: () => nowMs,
       pollIntervalMs: 60_000,
       nudgeAfterMs: 90_000,
@@ -110,10 +104,7 @@ describe('AgentWatchdog', () => {
     nowMs += 91_000
     await watchdog.poll()
 
-    expect(pasteFromFile).toHaveBeenCalledWith(
-      'alpha-codex-1',
-      path.join(deliveryRoot, 'team-1', 'alpha-codex-1.txt'),
-    )
+    expect(paste).toHaveBeenCalledWith('alpha-codex-1', WATCHDOG_NUDGE_TEXT)
     expect(appended).toHaveLength(1)
     expect(appended[0].content).toContain('Watchdog nudged codex-1')
     watchdog.stop()
@@ -186,19 +177,19 @@ describe('AgentWatchdog', () => {
     // to spam a "failed to nudge" message every 30s tick forever, and never
     // transition the agent to stalled, because the catch path never set
     // `nudgedAt`.
-    pasteFromFile.mockRejectedValue(new Error('PTY session not found'))
-    sessionExists.mockResolvedValue(false)
+    paste.mockImplementation(() => { throw new Error('PTY session not found') })
+    exists.mockReturnValue(false)
 
     const watchdog = createWatchdog()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    // First tick past the nudge threshold: nudge is attempted, pasteFromFile
-    // throws, sessionExists confirms the session is gone -> stalled immediately.
+    // First tick past the nudge threshold: nudge is attempted, paste
+    // throws, exists confirms the session is gone -> stalled immediately.
     await watchdog.poll()
     nowMs += 91_000
     await watchdog.poll()
 
-    expect(sessionExists).toHaveBeenCalledWith('alpha-codex-1')
+    expect(exists).toHaveBeenCalledWith('alpha-codex-1')
     expect(appended).toHaveLength(1)
     expect(appended[0].content).toContain('stalled')
     expect(appended[0].content).toContain('session is gone')
@@ -212,7 +203,7 @@ describe('AgentWatchdog', () => {
       await watchdog.poll()
     }
 
-    expect(pasteFromFile).toHaveBeenCalledTimes(1)
+    expect(paste).toHaveBeenCalledTimes(1)
     expect(appended).toHaveLength(1)
     watchdog.stop()
   })
@@ -222,8 +213,8 @@ describe('AgentWatchdog', () => {
     // transient failure (session still exists) must not be retried on every
     // 30s tick either. It should log exactly one failure message, then let
     // the existing stall-after-nudge timer take over.
-    pasteFromFile.mockRejectedValue(new Error('write EPIPE'))
-    sessionExists.mockResolvedValue(true)
+    paste.mockImplementation(() => { throw new Error('write EPIPE') })
+    exists.mockReturnValue(true)
 
     const watchdog = createWatchdog()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -232,7 +223,7 @@ describe('AgentWatchdog', () => {
     nowMs += 91_000
     await watchdog.poll()
 
-    expect(pasteFromFile).toHaveBeenCalledTimes(1)
+    expect(paste).toHaveBeenCalledTimes(1)
     expect(appended).toHaveLength(1)
     expect(appended[0].content).toContain('❌ Watchdog failed to nudge codex-1')
 
@@ -243,7 +234,7 @@ describe('AgentWatchdog', () => {
     nowMs += 30_000
     await watchdog.poll()
 
-    expect(pasteFromFile).toHaveBeenCalledTimes(1)
+    expect(paste).toHaveBeenCalledTimes(1)
     expect(appended).toHaveLength(1)
 
     // Once the stall window elapses since the (failed) nudge, the existing
