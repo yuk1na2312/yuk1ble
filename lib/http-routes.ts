@@ -3,9 +3,6 @@
  */
 
 import http from 'http'
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
   getTeamFeed, sendTeamMessage, disbandTeam,
@@ -14,12 +11,10 @@ import { getRuntime } from './agent-runtime'
 import { isLiveTeamSession } from './ensemble-registry'
 import { getLogEntries } from './log-buffer'
 import { describePrograms } from './programs'
+import { listCollabTemplates } from './prompts'
 import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './http-guard'
 import { handleEvents, handleSessionStream } from './sse'
 import { serveStatic } from './http-static'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const UI_FILE = path.join(__dirname, '..', 'public', 'index.html')
 
 /** How long a client may keep sending a refused body before its connection is cut. */
 const BODY_DRAIN_MS = 2_000
@@ -103,6 +98,11 @@ export function createRequestHandler({ host, port, webRoot }: RequestHandlerOpti
         return json(describePrograms())
       }
 
+      // Templates: the collaboration presets the new-team form offers
+      if (pathname === '/api/ensemble/templates' && method === 'GET') {
+        return json(listCollabTemplates())
+      }
+
       // List teams / Create team
       if (pathname === '/api/ensemble/teams') {
         if (method === 'GET') return reply(listEnsembleTeams())
@@ -171,21 +171,6 @@ export function createRequestHandler({ host, port, webRoot }: RequestHandlerOpti
       if (pathname === '/api/ensemble/logs' && method === 'GET') {
         const since = Number(url.searchParams.get('since'))
         return json(getLogEntries(Number.isFinite(since) ? since : undefined))
-      }
-
-      // Monitoring UI
-      if ((pathname === '/' || pathname === '/index.html') && method === 'GET') {
-        try {
-          const html = fs.readFileSync(UI_FILE)
-          res.writeHead(200, {
-            'Content-Type': 'text/html; charset=utf-8',
-            'Cache-Control': 'no-store',
-          })
-          res.end(html)
-        } catch {
-          json({ error: 'UI not found' }, 404)
-        }
-        return
       }
 
       // Last: anything that is not an API route may be a GUI file

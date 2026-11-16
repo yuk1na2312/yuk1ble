@@ -36,6 +36,18 @@ export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['
   }
 }
 
+/** Every preset in collab-templates.json, keyed for `templateName`; behind GET /api/ensemble/templates. */
+export function listCollabTemplates(): Array<CollabTemplatesFile['templates'][string] & { key: string }> {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, '..', 'collab-templates.json'), 'utf-8')
+    const data: CollabTemplatesFile = JSON.parse(raw)
+    return Object.entries(data.templates).map(([key, template]) => ({ key, ...template }))
+  } catch (err) {
+    console.warn('[Ensemble] Failed to load templates:', err)
+    return []
+  }
+}
+
 export function buildPromptPreview(params: {
   teamId: string
   teamName: string

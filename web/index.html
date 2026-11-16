@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ensemble</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2317161a'/%3E%3Crect x='3' y='3' width='10' height='2' rx='1' fill='%236aa9ff'/%3E%3Crect x='3' y='7' width='7' height='2' rx='1' fill='%237ec98f'/%3E%3Crect x='3' y='11' width='9' height='2' rx='1' fill='%23e0b866'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/vendor/xterm/xterm.css">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<a class="skip" href="#stage">Skip to terminals</a>
+
+<div id="app">
+  <aside id="rail" aria-label="Teams">
+    <div class="brand">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="wordmark">ensemble</span>
+    </div>
+    <div id="connection" class="connection" data-state="connecting" role="status" aria-live="polite">
+      <span class="pip" aria-hidden="true"></span><span id="connection-text">Connecting</span>
+    </div>
+    <button type="button" id="open-new" class="primary wide">New team</button>
+    <nav aria-label="Team list">
+      <ul id="team-list" class="team-list"></ul>
+      <p id="team-empty" class="empty" hidden>No teams yet. Start one and its agents show up here.</p>
+    </nav>
+  </aside>
+
+  <main id="stage" tabindex="-1" aria-label="Agent terminals">
+    <header id="stage-head" class="stage-head" hidden>
+      <div class="stage-title">
+        <h1 id="stage-name"></h1>
+        <span id="stage-status" class="status"></span>
+      </div>
+      <p id="stage-task" class="stage-task"></p>
+    </header>
+    <div id="terminals" class="terminals" data-count="0"></div>
+    <div id="stage-empty" class="stage-empty">
+      <p class="lede">Pick a team to watch its agents work, or start a new one.</p>
+      <button type="button" class="primary" id="open-new-stage">New team</button>
+    </div>
+  </main>
+
+  <aside id="side" aria-label="Conversation">
+    <header class="side-head">
+      <h2>Conversation</h2>
+      <span id="disband-slot" class="disband-slot"></span>
+    </header>
+    <div id="transcript-wrap" class="transcript-wrap">
+      <ol id="transcript" class="transcript" aria-live="off"></ol>
+      <p id="transcript-empty" class="empty">Select a team to read what its agents say to each other.</p>
+      <button type="button" id="jump" class="jump" hidden>Jump to latest</button>
+    </div>
+    <form id="composer" class="composer" autocomplete="off">
+      <div class="composer-row">
+        <label for="composer-to" class="sr">Send to</label>
+        <select id="composer-to" disabled></select>
+      </div>
+      <label for="composer-text" class="sr">Message</label>
+      <textarea id="composer-text" rows="2" placeholder="Steer the team. Enter sends, Shift+Enter adds a line." disabled></textarea>
+      <p id="composer-error" class="form-error" role="alert"></p>
+      <button type="submit" id="composer-send" class="primary" disabled>Send</button>
+    </form>
+  </aside>
+
+  <section id="log-drawer" class="log-drawer" data-open="false" aria-label="Server log">
+    <header class="log-head">
+      <button type="button" id="log-toggle" class="log-toggle" aria-expanded="false" aria-controls="log-body">
+        <span class="chev" aria-hidden="true"></span><span id="log-title">Server log</span>
+      </button>
+      <span id="log-last" class="log-last"></span>
+      <button type="button" id="log-clear" class="quiet">Clear</button>
+    </header>
+    <div id="log-body" class="log-body" role="log" aria-live="off" tabindex="0" aria-label="Server log lines"></div>
+  </section>
+</div>
+
+<dialog id="new-team" class="new-team" aria-labelledby="new-team-title">
+  <form id="new-team-form" method="dialog" novalidate>
+    <header class="dialog-head">
+      <h2 id="new-team-title">New team</h2>
+      <button type="button" id="new-team-close" class="quiet" aria-label="Close">Close</button>
+    </header>
+
+    <div class="field">
+      <label for="nt-task">Task</label>
+      <textarea id="nt-task" rows="4" required placeholder="What should the team work on?"></textarea>
+    </div>
+
+    <div class="field-row">
+      <div class="field">
+        <label for="nt-name">Team name</label>
+        <input id="nt-name" type="text" maxlength="64" autocomplete="off">
+      </div>
+      <div class="field" id="nt-template-field" hidden>
+        <label for="nt-template">Template</label>
+        <select id="nt-template"></select>
+      </div>
+    </div>
+    <p id="nt-template-note" class="hint" hidden></p>
+
+    <div class="field">
+      <label for="nt-cwd">Working directory</label>
+      <input id="nt-cwd" type="text" autocomplete="off" placeholder="Blank uses the server's folder">
+    </div>
+
+    <fieldset class="agents">
+      <legend>Agents</legend>
+      <div id="nt-agents" class="agent-rows"></div>
+      <button type="button" id="nt-add" class="quiet">Add agent</button>
+    </fieldset>
+
+    <div class="checks">
+      <label><input type="checkbox" id="nt-staged"> Staged: plan, then build, then verify</label>
+      <label><input type="checkbox" id="nt-worktrees"> Give each agent its own git worktree</label>
+    </div>
+
+    <p id="nt-error" class="form-error" role="alert"></p>
+
+    <footer class="dialog-foot">
+      <button type="button" id="nt-cancel" class="quiet">Cancel</button>
+      <button type="submit" id="nt-submit" class="primary">Start team</button>
+    </footer>
+  </form>
+</dialog>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

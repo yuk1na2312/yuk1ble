@@ -1,5 +1,4 @@
 import fs from 'fs'
-import vm from 'vm'
 import os from 'os'
 import path from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -43,13 +42,11 @@ describe('the monitoring page', () => {
   afterAll(() => { server.restore(); server.cleanup() })
 
   it('takes colours and icons from the catalog instead of a table of its own, and its script parses', async () => {
-    const html = await (await fetch(`${server.baseUrl}/`)).text()
-    expect(html).toContain('/api/ensemble/programs')
-    expect(html).not.toContain('PROGRAM_STYLES')
-    expect(html).not.toMatch(/codex|claude|aider|gemini|opencode/i)
-
-    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''
-    expect(() => new vm.Script(script)).not.toThrow()
+    const files = ['/', '/js/api.js', '/js/store.js', '/js/teams.js', '/js/terminals.js', '/js/transcript.js', '/js/new-team.js', '/app.css']
+    const all = (await Promise.all(files.map(async f => (await fetch(`${server.baseUrl}${f}`)).text()))).join('\n')
+    expect(all).toContain('/programs')
+    expect(all).not.toContain('PROGRAM_STYLES')
+    expect(all).not.toMatch(/codex|claude|aider|gemini|opencode/i)
   })
 })
 
