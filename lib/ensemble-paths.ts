@@ -14,7 +14,3 @@ export function getEnsembleDataDir(): string {
 export function getEnsembleRegistryDir(): string {
   return path.join(getEnsembleDataDir(), 'ensemble')
 }
-
-export function getHostsConfigPath(): string {
-  return path.join(getEnsembleDataDir(), 'hosts.json')
-}

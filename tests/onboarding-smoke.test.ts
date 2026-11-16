@@ -69,19 +69,14 @@ describe('onboarding smoke test', () => {
 
     vi.resetModules()
     vi.doMock('../lib/agent-spawner', () => ({
-      spawnLocalAgent: vi.fn(async ({ name, program, workingDirectory, hostId }) => ({
+      spawnLocalAgent: vi.fn(async ({ name, program, workingDirectory }) => ({
         id: `${name}-id`,
         name,
         program,
         sessionName: name,
         workingDirectory,
-        hostId,
       })),
       killLocalAgent: vi.fn(async () => {}),
-      spawnRemoteAgent: vi.fn(async () => ({ id: 'remote-agent-id' })),
-      killRemoteAgent: vi.fn(async () => {}),
-      postRemoteSessionCommand: vi.fn(async () => {}),
-      isRemoteSessionReady: vi.fn(async () => true),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
     vi.doMock('../lib/agent-runtime', () => ({
@@ -91,11 +86,6 @@ describe('onboarding smoke test', () => {
     vi.doMock('../lib/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
-    }))
-    vi.doMock('../lib/hosts-config', () => ({
-      isSelf: vi.fn(() => true),
-      getHostById: vi.fn(() => ({ id: 'local', url: baseUrl })),
-      getSelfHostId: vi.fn(() => 'local'),
     }))
 
     await import('../server')

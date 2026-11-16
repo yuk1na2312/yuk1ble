@@ -76,12 +76,7 @@ describe('StagedWorkflowManager', () => {
     vi.doMock('../lib/collab-paths', () => ({
       collabDeliveryFile: vi.fn(() => '/tmp/unused'),
     }))
-    vi.doMock('../lib/hosts-config', () => ({
-      isSelf: vi.fn(() => true),
-      getHostById: vi.fn(),
-    }))
     vi.doMock('../lib/agent-spawner', () => ({
-      postRemoteSessionCommand: vi.fn(async () => {}),
     }))
 
     const { StagedWorkflowManager } = await import('../lib/staged-workflow')

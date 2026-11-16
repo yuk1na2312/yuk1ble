@@ -213,16 +213,7 @@ describe('startup gate auto-confirm', () => {
     vi.doMock('../lib/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(async () => ({ id: 'agent-id' })),
       killLocalAgent: vi.fn(),
-      spawnRemoteAgent: vi.fn(),
-      killRemoteAgent: vi.fn(),
-      postRemoteSessionCommand: vi.fn(),
-      isRemoteSessionReady: vi.fn(async () => true),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
-    }))
-    vi.doMock('../lib/hosts-config', () => ({
-      isSelf: vi.fn(() => true),
-      getHostById: vi.fn(),
-      getSelfHostId: vi.fn(() => 'local'),
     }))
     vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
     vi.doMock('../lib/collab-paths', () => ({

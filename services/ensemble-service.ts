@@ -1,7 +1,7 @@
 /**
  * Ensemble Service — Standalone
  * No dependency on ai-maestro's agent-registry or agents-core-service.
- * Uses agent-spawner.ts for local/remote agent lifecycle.
+ * Uses agent-spawner.ts for local agent lifecycle.
  */
 
 import { v4 as uuidv4 } from 'uuid'
@@ -12,11 +12,8 @@ import {
 } from '../lib/ensemble-registry'
 import {
   spawnLocalAgent, killLocalAgent,
-  spawnRemoteAgent as spawnRemote, killRemoteAgent,
-  postRemoteSessionCommand, isRemoteSessionReady,
   getAgentTokenUsage,
 } from '../lib/agent-spawner'
-import { isSelf, getHostById, getSelfHostId } from '../lib/hosts-config'
 import { getRuntime } from '../lib/agent-runtime'
 import { ensureSubmitted } from '../lib/paste-submit'
 import { resolveAgentProgram, resolveReadyMarkers } from '../lib/agent-config'
@@ -361,9 +358,6 @@ class EnsembleService {
       appendMessage,
       getRuntime,
       resolveAgentProgram,
-      isSelf: (hostId?: string) => isSelf(hostId || ''),
-      getHostById,
-      postRemoteSessionCommand,
       collabDeliveryFile,
       markAgentStalled: (teamId: string, agentName: string, stalledAt: string) => {
         const team = getTeam(teamId)
@@ -583,15 +577,6 @@ function sendTelegramSummary(params: {
   )
 }
 
-async function routeToHost(_program: string, preferredHostId?: string): Promise<string> {
-  if (preferredHostId) {
-    const host = getHostById(preferredHostId)
-    if (host) return preferredHostId
-    console.warn(`[Ensemble] Unknown host ${preferredHostId}, falling back to self`)
-  }
-  return getSelfHostId()
-}
-
 export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['templates'][string] | undefined {
   if (!templateName) return undefined
   try {
@@ -677,35 +662,28 @@ export async function createEnsembleTeam(
   const cwd = request.workingDirectory || process.cwd()
   const worktreeMap = new Map<string, WorktreeInfo>()
 
-  // Phase 0: Create worktrees for local agents if requested
+  // Phase 0: Create worktrees if requested
   if (request.useWorktrees) {
     for (let i = 0; i < team.agents.length; i++) {
       const agentSpec = team.agents[i]
-      const hostId = request.agents[i].hostId
-        ? (getHostById(request.agents[i].hostId!) ? request.agents[i].hostId! : getSelfHostId())
-        : getSelfHostId()
-
-      // Only create worktrees for local agents
-      if (isSelf(hostId)) {
-        try {
-          const worktreeInfo = await createWorktree(team.id, agentSpec.name, cwd)
-          worktreeMap.set(agentSpec.name, worktreeInfo)
-          team.agents[i].worktreePath = worktreeInfo.path
-          team.agents[i].worktreeBranch = worktreeInfo.branch
-          appendMessage(team.id, {
-            id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-            content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
-            type: 'chat', timestamp: new Date().toISOString(),
-          })
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : String(err)
-          console.error(`[Ensemble] Failed to create worktree for ${agentSpec.name}:`, message)
-          appendMessage(team.id, {
-            id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-            content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
-            type: 'chat', timestamp: new Date().toISOString(),
-          })
-        }
+      try {
+        const worktreeInfo = await createWorktree(team.id, agentSpec.name, cwd)
+        worktreeMap.set(agentSpec.name, worktreeInfo)
+        team.agents[i].worktreePath = worktreeInfo.path
+        team.agents[i].worktreeBranch = worktreeInfo.branch
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        console.error(`[Ensemble] Failed to create worktree for ${agentSpec.name}:`, message)
+        appendMessage(team.id, {
+          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
       }
     }
   }
@@ -725,7 +703,6 @@ export async function createEnsembleTeam(
   // Phase 1: Spawn all agents
   for (let i = 0; i < team.agents.length; i++) {
     const agentSpec = team.agents[i]
-    const hostId = await routeToHost(agentSpec.program, request.agents[i].hostId)
     const agentName = `${team.name}-${agentSpec.name}`
     const prompt = buildPrompt(agentSpec.name, team.agents.filter((_, j) => j !== i).map(a => a.name), i)
 
@@ -735,32 +712,21 @@ export async function createEnsembleTeam(
     console.log(`[Ensemble] Prompt for ${agentSpec.name}: ${prompt}`)
 
     try {
-      let agentId: string
-      console.log(`[Ensemble] Spawning ${agentName} (${agentSpec.program}) on ${hostId} (self=${isSelf(hostId)})`)
+      console.log(`[Ensemble] Spawning ${agentName} (${agentSpec.program})`)
 
-      if (isSelf(hostId)) {
-        const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
-        const spawned = await spawnLocalAgent({
-          name: agentName,
-          program: agentSpec.program,
-          workingDirectory: agentCwd,
-          hostId,
-        })
-        agentId = spawned.id
-      } else {
-        const host = getHostById(hostId)
-        if (!host) throw new Error(`Unknown host: ${hostId}`)
-        const remote = await spawnRemote(host.url, agentName, agentSpec.program, cwd, team.description, team.name)
-        agentId = remote.id
-      }
+      const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
+      const spawned = await spawnLocalAgent({
+        name: agentName,
+        program: agentSpec.program,
+        workingDirectory: agentCwd,
+      })
 
-      team.agents[i].agentId = agentId
-      team.agents[i].hostId = hostId
+      team.agents[i].agentId = spawned.id
       team.agents[i].status = 'active'
 
       appendMessage(team.id, {
         id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
-        content: `${agentSpec.name} (${agentSpec.program} @ ${hostId}) has joined #${team.name}`,
+        content: `${agentSpec.name} (${agentSpec.program}) has joined #${team.name}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
     } catch (err: unknown) {
@@ -805,11 +771,10 @@ export async function createEnsembleTeam(
     }
 
     const waitForReady = async (
-      sessionName: string, program: string, hostId?: string, maxWait = READY_TIMEOUT_MS,
+      sessionName: string, program: string, maxWait = READY_TIMEOUT_MS,
     ): Promise<boolean> => {
       const start = Date.now()
       const readyMarkers = resolveReadyMarkers(program)
-      const isLocal = !hostId || isSelf(hostId)
       const gateAttempts = new Map<string, number>()
       let lastGateName = ''
       let lastGateHandledAt = 0
@@ -824,66 +789,58 @@ export async function createEnsembleTeam(
         // A session that has exited is never going to become ready. Report that
         // distinctly instead of burning the whole window and blaming a timeout.
         // An unusable sessionExists is treated as "unknown" — keep waiting.
-        if (isLocal && await sessionHasExited(sessionName)) {
+        if (await sessionHasExited(sessionName)) {
           console.error(`[Ensemble] ${sessionName} exited before becoming ready (${Math.round((Date.now() - start) / 1000)}s)`)
           return false
         }
         try {
-          if (!isLocal) {
-            const host = getHostById(hostId as string)
-            if (host && await isRemoteSessionReady(host.url, sessionName)) {
-              console.log(`[Ensemble] ${sessionName} is remotely reachable (${Math.round((Date.now() - start) / 1000)}s)`)
-              return true
-            }
-          } else {
-            const output = await runtime.capturePane(sessionName, 50)
-            const gate = AUTO_CONFIRM_GATES.find(candidate =>
-              candidate.pattern.test(output) && (gateAttempts.get(candidate.name) ?? 0) < MAX_GATE_ATTEMPTS
-            )
-            if (gate) {
-              const now = Date.now()
-              if (gate.name !== lastGateName || now - lastGateHandledAt >= 3000) {
-                for (const key of gate.respond) {
-                  await runtime.sendKeys(sessionName, key.keys, key.opts)
-                }
-                const attempts = (gateAttempts.get(gate.name) ?? 0) + 1
-                gateAttempts.set(gate.name, attempts)
-                lastGateName = gate.name
-                lastGateHandledAt = now
-                console.log(`[Ensemble] Auto-confirmed ${gate.name} in ${sessionName} (attempt ${attempts}/${MAX_GATE_ATTEMPTS})`)
-                if (attempts >= MAX_GATE_ATTEMPTS) {
-                  console.warn(`[Ensemble] ${gate.name} did not clear in ${sessionName}; ignoring it and checking readiness directly`)
-                }
+          const output = await runtime.capturePane(sessionName, 50)
+          const gate = AUTO_CONFIRM_GATES.find(candidate =>
+            candidate.pattern.test(output) && (gateAttempts.get(candidate.name) ?? 0) < MAX_GATE_ATTEMPTS
+          )
+          if (gate) {
+            const now = Date.now()
+            if (gate.name !== lastGateName || now - lastGateHandledAt >= 3000) {
+              for (const key of gate.respond) {
+                await runtime.sendKeys(sessionName, key.keys, key.opts)
               }
-              await new Promise(r => setTimeout(r, 1000))
-              continue
+              const attempts = (gateAttempts.get(gate.name) ?? 0) + 1
+              gateAttempts.set(gate.name, attempts)
+              lastGateName = gate.name
+              lastGateHandledAt = now
+              console.log(`[Ensemble] Auto-confirmed ${gate.name} in ${sessionName} (attempt ${attempts}/${MAX_GATE_ATTEMPTS})`)
+              if (attempts >= MAX_GATE_ATTEMPTS) {
+                console.warn(`[Ensemble] ${gate.name} did not clear in ${sessionName}; ignoring it and checking readiness directly`)
+              }
             }
-            const marker = matchReadyMarker(output, readyMarkers)
-            if (marker) {
-              console.log(
-                `[Ensemble] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s,`
-                + ` matched ${JSON.stringify(marker)})`
-              )
-              return true
-            }
+            await new Promise(r => setTimeout(r, 1000))
+            continue
+          }
+          const marker = matchReadyMarker(output, readyMarkers)
+          if (marker) {
+            console.log(
+              `[Ensemble] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s,`
+              + ` matched ${JSON.stringify(marker)})`
+            )
+            return true
+          }
 
-            // Fallback: no marker matched, but the CLI has painted a screen that
-            // has since stopped changing. A working agent redraws constantly
-            // while it starts up (spinners, progress, hook output), so a screen
-            // that is byte-identical for QUIESCENT_READY_MS is an agent sitting
-            // at its prompt behind a marker we don't recognise. Without this a
-            // single UI tweak upstream costs the whole READY_TIMEOUT_MS window.
-            if (output !== lastPane) {
-              lastPane = output
-              lastPaneChangedAt = Date.now()
-            } else if (isQuiescentReady(output, Date.now() - lastPaneChangedAt, QUIESCENT_READY_MS)) {
-              console.warn(
-                `[Ensemble] ${sessionName} assumed ready (${Math.round((Date.now() - start) / 1000)}s):`
-                + ` no marker in ${JSON.stringify(readyMarkers)}, but the screen has been idle`
-                + ` for ${QUIESCENT_READY_MS / 1000}s`
-              )
-              return true
-            }
+          // Fallback: no marker matched, but the CLI has painted a screen that
+          // has since stopped changing. A working agent redraws constantly
+          // while it starts up (spinners, progress, hook output), so a screen
+          // that is byte-identical for QUIESCENT_READY_MS is an agent sitting
+          // at its prompt behind a marker we don't recognise. Without this a
+          // single UI tweak upstream costs the whole READY_TIMEOUT_MS window.
+          if (output !== lastPane) {
+            lastPane = output
+            lastPaneChangedAt = Date.now()
+          } else if (isQuiescentReady(output, Date.now() - lastPaneChangedAt, QUIESCENT_READY_MS)) {
+            console.warn(
+              `[Ensemble] ${sessionName} assumed ready (${Math.round((Date.now() - start) / 1000)}s):`
+              + ` no marker in ${JSON.stringify(readyMarkers)}, but the screen has been idle`
+              + ` for ${QUIESCENT_READY_MS / 1000}s`
+            )
+            return true
           }
         } catch (err) {
           lastError = err instanceof Error ? err.message : String(err)
@@ -910,7 +867,7 @@ export async function createEnsembleTeam(
     const readyResults = await Promise.all(
       activeAgents.map(agent => {
         const sessionName = `${team.name}-${agent.name}`
-        return waitForReady(sessionName, agent.program, agent.hostId).then(ready => ({ agent, sessionName, ready }))
+        return waitForReady(sessionName, agent.program).then(ready => ({ agent, sessionName, ready }))
       })
     )
 
@@ -940,8 +897,7 @@ export async function createEnsembleTeam(
     // raises "PTY session not found" and buries the real cause.
     const liveness = await Promise.all(readyResults.map(async result => ({
       result,
-      alive: (result.agent.hostId && !isSelf(result.agent.hostId))
-        || !(await sessionHasExited(result.sessionName)),
+      alive: !(await sessionHasExited(result.sessionName)),
     })))
     for (const { result } of liveness.filter(entry => !entry.alive)) {
       console.error(`[Ensemble] ${result.sessionName} has no live session — skipping prompt injection`)
@@ -1020,22 +976,14 @@ export async function createEnsembleTeam(
         injectTargets.map(async ({ agent, sessionName }) => {
           const promptFile = collabPromptFile(team.id, agent.name)
           try {
-            if (agent.hostId && !isSelf(agent.hostId)) {
-              const host = getHostById(agent.hostId)
-              if (host) {
-                const prompt = fs.readFileSync(promptFile, 'utf-8')
-                await postRemoteSessionCommand(host.url, sessionName, prompt)
-              }
+            const agentCfg = resolveAgentProgram(agent.program)
+            if (agentCfg.inputMethod === 'pasteFromFile') {
+              await runtime.pasteFromFile(sessionName, promptFile)
             } else {
-              const agentCfg = resolveAgentProgram(agent.program)
-              if (agentCfg.inputMethod === 'pasteFromFile') {
-                await runtime.pasteFromFile(sessionName, promptFile)
-              } else {
-                const prompt = fs.readFileSync(promptFile, 'utf-8')
-                await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
-              }
-              await ensureSubmitted(runtime, sessionName)
+              const prompt = fs.readFileSync(promptFile, 'utf-8')
+              await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
             }
+            await ensureSubmitted(runtime, sessionName)
             console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -1115,18 +1063,13 @@ export async function sendTeamMessage(
         `→ Respond with team-say. Then run team-read to check for more messages.`,
       ].join('\n')
 
-      if (targetAgent.hostId && !isSelf(targetAgent.hostId)) {
-        const host = getHostById(targetAgent.hostId)
-        if (host) await postRemoteSessionCommand(host.url, sessionName, deliveryText)
-      } else {
-        // Always use pasteFromFile for message delivery to avoid shell escaping
-        // issues (typed input breaks on ?, !, `, $ and \ in PowerShell)
-        const tmpFile = collabDeliveryFile(teamId, sessionName)
-        fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
-        fs.writeFileSync(tmpFile, deliveryText)
-        await runtime.pasteFromFile(sessionName, tmpFile)
-        await ensureSubmitted(runtime, sessionName)
-      }
+      // Always use pasteFromFile for message delivery to avoid shell escaping
+      // issues (typed input breaks on ?, !, `, $ and \ in PowerShell)
+      const tmpFile = collabDeliveryFile(teamId, sessionName)
+      fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
+      fs.writeFileSync(tmpFile, deliveryText)
+      await runtime.pasteFromFile(sessionName, tmpFile)
+      await ensureSubmitted(runtime, sessionName)
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       appendMessage(teamId, {
@@ -1228,18 +1171,13 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
       })
 
       try {
-        if (agent.hostId && !isSelf(agent.hostId)) {
-          const host = getHostById(agent.hostId)
-          if (host && agent.agentId) await killRemoteAgent(host.url, agent.agentId)
-        } else {
-          await killLocalAgent(`${team.name}-${agent.name}`)
-        }
+        await killLocalAgent(`${team.name}-${agent.name}`)
       } catch { /* session may already be gone */ }
     }
   }
 
   const agentsWithWorktrees = team.agents.filter(
-    a => a.worktreePath && a.worktreeBranch && (!a.hostId || isSelf(a.hostId))
+    a => a.worktreePath && a.worktreeBranch
   )
   if (agentsWithWorktrees.length > 0) {
     await new Promise(resolve => setTimeout(resolve, 2000))

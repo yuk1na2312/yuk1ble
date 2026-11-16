@@ -16,7 +16,8 @@ export interface EnsembleTeamAgent {
   name: string
   program: string
   role: string
-  hostId: string
+  /** Legacy field from remote-host support. Kept optional so old teams.json records still load; nothing reads it. */
+  hostId?: string
   status: 'spawning' | 'active' | 'idle' | 'done' | 'failed'
   /**
    * Set by the watchdog when an agent stops making progress after a nudge.
@@ -54,6 +55,7 @@ export interface CreateTeamRequest {
   agents: Array<{
     program: string
     role?: string
+    /** Accepted and ignored: all agents run locally. */
     hostId?: string
   }>
   feedMode?: 'silent' | 'summary' | 'live'

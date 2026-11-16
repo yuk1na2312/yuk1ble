@@ -264,7 +264,6 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     vi.resetModules()
     vi.doUnmock('../lib/ensemble-registry')
     vi.doUnmock('../lib/agent-spawner')
-    vi.doUnmock('../lib/hosts-config')
     vi.doUnmock('../lib/agent-runtime')
     vi.doUnmock('../lib/agent-config')
     if (originalDataDir === undefined) {
@@ -289,16 +288,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     vi.doMock('../lib/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(),
       killLocalAgent: vi.fn(),
-      spawnRemoteAgent: vi.fn(),
-      killRemoteAgent: vi.fn(),
-      postRemoteSessionCommand: vi.fn(),
-      isRemoteSessionReady: vi.fn(),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
-    }))
-    vi.doMock('../lib/hosts-config', () => ({
-      isSelf: vi.fn(() => true),
-      getHostById: vi.fn(),
-      getSelfHostId: vi.fn(() => 'local'),
     }))
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
@@ -597,17 +587,14 @@ describe('worktree isolation lifecycle', () => {
     const getTeam = vi.fn(() => team)
     const updateTeam = vi.fn((_id: string, updates: Partial<EnsembleTeam>) => ({ ...team, ...updates }))
     const appendMessage = vi.fn((_id: string, message: EnsembleMessage) => appendedMessages.push(message))
-    const spawnLocalAgent = vi.fn(async ({ name, program, workingDirectory, hostId }) => ({
+    const spawnLocalAgent = vi.fn(async ({ name, program, workingDirectory }) => ({
       id: `${name}-id`,
       name,
       program,
       sessionName: name,
       workingDirectory,
-      hostId,
     }))
-    const spawnRemoteAgent = vi.fn(async () => ({ id: 'remote-agent-id' }))
     const killLocalAgent = vi.fn(async () => {})
-    const killRemoteAgent = vi.fn(async () => {})
     const createWorktree = vi.fn(async (teamId: string, agentName: string, basePath: string) => ({
       path: path.join(basePath, '.worktrees', `${teamId}-${agentName}`),
       branch: `collab/${teamId}/${agentName}`,
@@ -627,10 +614,6 @@ describe('worktree isolation lifecycle', () => {
     vi.doMock('../lib/agent-spawner', () => ({
       spawnLocalAgent,
       killLocalAgent,
-      spawnRemoteAgent,
-      killRemoteAgent,
-      postRemoteSessionCommand: vi.fn(),
-      isRemoteSessionReady: vi.fn(async () => true),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
     vi.doMock('../lib/worktree-manager', () => ({
@@ -638,15 +621,6 @@ describe('worktree isolation lifecycle', () => {
       mergeWorktree,
       destroyWorktree,
       listTeamWorktrees: vi.fn(async () => []),
-    }))
-    vi.doMock('../lib/hosts-config', () => ({
-      isSelf: vi.fn((hostId: string) => hostId === 'local'),
-      getHostById: vi.fn((hostId: string) => {
-        if (hostId === 'local') return { id: 'local', url: 'http://local.test' }
-        if (hostId === 'remote-1') return { id: 'remote-1', url: 'http://remote.test' }
-        return undefined
-      }),
-      getSelfHostId: vi.fn(() => 'local'),
     }))
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
@@ -681,9 +655,7 @@ describe('worktree isolation lifecycle', () => {
         updateTeam,
         appendMessage,
         spawnLocalAgent,
-        spawnRemoteAgent,
         killLocalAgent,
-        killRemoteAgent,
         createWorktree,
         mergeWorktree,
         destroyWorktree,
@@ -787,32 +759,6 @@ describe('worktree isolation lifecycle', () => {
     expect(mocks.killLocalAgent.mock.invocationCallOrder[0]).toBeLessThan(mocks.mergeWorktree.mock.invocationCallOrder[0])
     expect(mocks.mergeWorktree.mock.invocationCallOrder[0]).toBeLessThan(mocks.destroyWorktree.mock.invocationCallOrder[0])
   })
-
-  it('skips worktree merge for remote agents even if worktree metadata exists', async () => {
-    const team = makeTeam({
-      id: 'team-worktree-remote',
-      name: 'team-worktree-remote',
-      agents: [
-        {
-          agentId: 'agent-1',
-          name: 'claude-1',
-          program: 'claude',
-          role: 'member',
-          hostId: 'remote-1',
-          status: 'active',
-          worktreePath: '/repo/.worktrees/team-worktree-remote-claude-1',
-          worktreeBranch: 'collab/team-worktree-remote/claude-1',
-        },
-      ],
-    })
-    const { mod, mocks } = await setupWorktreeService(team)
-
-    await mod.disbandTeam(team.id)
-
-    expect(mocks.mergeWorktree).not.toHaveBeenCalled()
-    expect(mocks.destroyWorktree).not.toHaveBeenCalled()
-    expect(mocks.killRemoteAgent).toHaveBeenCalledWith('http://remote.test', 'agent-1')
-  })
 })
 
 describe('staged workflow integration', () => {
@@ -847,25 +793,15 @@ describe('staged workflow integration', () => {
       getMessages: vi.fn(() => []),
     }))
     vi.doMock('../lib/agent-spawner', () => ({
-      spawnLocalAgent: vi.fn(async ({ name, program, workingDirectory, hostId }) => ({
+      spawnLocalAgent: vi.fn(async ({ name, program, workingDirectory }) => ({
         id: `${name}-id`,
         name,
         program,
         sessionName: name,
         workingDirectory,
-        hostId,
       })),
       killLocalAgent: vi.fn(async () => {}),
-      spawnRemoteAgent: vi.fn(async () => ({ id: 'remote-agent-id' })),
-      killRemoteAgent: vi.fn(async () => {}),
-      postRemoteSessionCommand: vi.fn(async () => {}),
-      isRemoteSessionReady: vi.fn(async () => true),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
-    }))
-    vi.doMock('../lib/hosts-config', () => ({
-      isSelf: vi.fn(() => true),
-      getHostById: vi.fn(() => ({ id: 'local', url: 'http://local.test' })),
-      getSelfHostId: vi.fn(() => 'local'),
     }))
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => runtime),

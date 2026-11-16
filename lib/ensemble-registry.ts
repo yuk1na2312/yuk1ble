@@ -113,7 +113,6 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
         name: `${a.program.toLowerCase().replace(/\s+/g, '-').split('-')[0]}-${i + 1}`,
         program: a.program,
         role: a.role || (i === 0 ? 'lead' : 'member'),
-        hostId: a.hostId || '',
         status: 'spawning' as const,
       })),
       createdBy: getCreatedBy(),

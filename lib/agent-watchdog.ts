@@ -24,9 +24,6 @@ interface AgentWatchdogDeps {
   resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys' }
   /** Records the stall where API consumers can see it. Optional for tests. */
   markAgentStalled?: (teamId: string, agentName: string, stalledAt: string) => void
-  isSelf: (hostId?: string) => boolean
-  getHostById: (hostId: string) => { url: string } | undefined
-  postRemoteSessionCommand: (url: string, sessionName: string, text: string) => Promise<void>
   collabDeliveryFile: (teamId: string, sessionName: string) => string
   now?: () => number
   nudgeAfterMs?: number
@@ -117,13 +114,13 @@ export class AgentWatchdog {
 
       if (!currentState.nudgedAt && idleMs >= this.nudgeAfterMs) {
         try {
-          await this.nudgeAgent(team, agent.name, agent.program, agent.hostId)
+          await this.nudgeAgent(team, agent.name, agent.program)
           this.state.set(stateKey, {
             lastMessageAt,
             nudgedAt: new Date(nowMs).toISOString(),
           })
         } catch (err) {
-          await this.handleNudgeFailure(team, agent.name, agent.hostId, stateKey, lastMessageAt, nowMs, err)
+          await this.handleNudgeFailure(team, agent.name, stateKey, lastMessageAt, nowMs, err)
         }
         continue
       }
@@ -155,23 +152,16 @@ export class AgentWatchdog {
     }
   }
 
-  private async nudgeAgent(team: EnsembleTeam, agentName: string, _program: string, hostId?: string): Promise<void> {
+  private async nudgeAgent(team: EnsembleTeam, agentName: string, _program: string): Promise<void> {
     const sessionName = `${team.name}-${agentName}`
-    if (hostId && !this.deps.isSelf(hostId)) {
-      const host = this.deps.getHostById(hostId)
-      if (host) {
-        await this.deps.postRemoteSessionCommand(host.url, sessionName, WATCHDOG_NUDGE_TEXT)
-      }
-    } else {
-      // Always use pasteFromFile to avoid shell escaping issues with sendKeys
-      const runtime = this.deps.getRuntime()
-      const filePath = this.deps.collabDeliveryFile(team.id, sessionName)
-      fs.mkdirSync(path.dirname(filePath), { recursive: true })
-      fs.writeFileSync(filePath, WATCHDOG_NUDGE_TEXT)
-      await runtime.pasteFromFile(sessionName, filePath)
-      // A pasted nudge parks in the composer just like any other paste.
-      await ensureSubmitted(runtime, sessionName)
-    }
+    // Always use pasteFromFile to avoid shell escaping issues with sendKeys
+    const runtime = this.deps.getRuntime()
+    const filePath = this.deps.collabDeliveryFile(team.id, sessionName)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, WATCHDOG_NUDGE_TEXT)
+    await runtime.pasteFromFile(sessionName, filePath)
+    // A pasted nudge parks in the composer just like any other paste.
+    await ensureSubmitted(runtime, sessionName)
 
     // Only report the nudge as having happened once it actually succeeded —
     // appending this before the send (as before) left a false "nudged" message
@@ -203,7 +193,6 @@ export class AgentWatchdog {
   private async handleNudgeFailure(
     team: EnsembleTeam,
     agentName: string,
-    hostId: string | undefined,
     stateKey: string,
     lastMessageAt: string,
     nowMs: number,
@@ -212,20 +201,17 @@ export class AgentWatchdog {
     const reason = err instanceof Error ? err.message : String(err)
     const iso = new Date(nowMs).toISOString()
     const sessionName = `${team.name}-${agentName}`
-    const isLocal = !hostId || this.deps.isSelf(hostId)
 
     // Prefer asking the runtime whether the session still exists over
     // string-matching the error message — pasteFromFile/sendKeys error text
     // isn't a stable contract, but sessionExists() is part of the
     // AgentRuntime interface and is authoritative about session liveness.
     let sessionGone = false
-    if (isLocal) {
-      try {
-        sessionGone = !(await this.deps.getRuntime().sessionExists(sessionName))
-      } catch {
-        // Couldn't determine liveness — don't assume the session is gone.
-        sessionGone = false
-      }
+    try {
+      sessionGone = !(await this.deps.getRuntime().sessionExists(sessionName))
+    } catch {
+      // Couldn't determine liveness — don't assume the session is gone.
+      sessionGone = false
     }
 
     if (sessionGone) {

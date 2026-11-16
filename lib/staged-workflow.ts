@@ -8,8 +8,6 @@ import { appendMessage, getMessages } from './ensemble-registry'
 import { getRuntime } from './agent-runtime'
 import { resolveAgentProgram } from './agent-config'
 import { collabDeliveryFile } from './collab-paths'
-import { isSelf, getHostById } from './hosts-config'
-import { postRemoteSessionCommand } from './agent-spawner'
 import fs from 'fs'
 import path from 'path'
 
@@ -39,7 +37,7 @@ const EXEC_DONE_PATTERNS = [
   /\bgeïmplementeerd\b/i,
 ]
 
-type ActiveAgent = Pick<EnsembleTeamAgent, 'name' | 'program' | 'hostId' | 'status'>
+type ActiveAgent = Pick<EnsembleTeamAgent, 'name' | 'program' | 'status'>
 
 interface PromptContext {
   agent: ActiveAgent
@@ -183,14 +181,6 @@ export class StagedWorkflowManager {
   private async deliverToAgent(agent: ActiveAgent, text: string): Promise<void> {
     const sessionName = `${this.options.team.name}-${agent.name}`
     const runtime = getRuntime()
-
-    if (agent.hostId && !isSelf(agent.hostId)) {
-      const host = getHostById(agent.hostId)
-      if (host) {
-        await postRemoteSessionCommand(host.url, sessionName, text)
-      }
-      return
-    }
 
     const agentCfg = resolveAgentProgram(agent.program)
     if (agentCfg.inputMethod === 'pasteFromFile') {

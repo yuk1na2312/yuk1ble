@@ -58,7 +58,6 @@ describe('AgentWatchdog', () => {
   let pasteFromFile: ReturnType<typeof vi.fn>
   let sessionExists: ReturnType<typeof vi.fn>
   let capturePane: ReturnType<typeof vi.fn>
-  let postRemoteSessionCommand: ReturnType<typeof vi.fn>
 
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -70,7 +69,6 @@ describe('AgentWatchdog', () => {
     pasteFromFile = vi.fn(async () => {})
     sessionExists = vi.fn(async () => true)
     capturePane = vi.fn(async () => '> ')
-    postRemoteSessionCommand = vi.fn(async () => {})
   })
 
   afterEach(() => {
@@ -96,9 +94,6 @@ describe('AgentWatchdog', () => {
       // here; the paste-submit behaviour has its own tests.
       getRuntime: () => ({ sendKeys, pasteFromFile, sessionExists, capturePane }),
       resolveAgentProgram: () => ({ inputMethod: 'sendKeys' }),
-      isSelf: () => true,
-      getHostById: () => undefined,
-      postRemoteSessionCommand,
       collabDeliveryFile: (teamId, sessionName) =>
         path.join(deliveryRoot, teamId, `${sessionName}.txt`),
       now: () => nowMs,

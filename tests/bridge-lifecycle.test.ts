@@ -103,16 +103,7 @@ function mockServiceDependencies(team?: EnsembleTeam, messages: EnsembleMessage[
   vi.doMock('../lib/agent-spawner', () => ({
     spawnLocalAgent: vi.fn(),
     killLocalAgent: vi.fn(),
-    spawnRemoteAgent: vi.fn(),
-    killRemoteAgent: vi.fn(),
-    postRemoteSessionCommand: vi.fn(),
-    isRemoteSessionReady: vi.fn(),
     getAgentTokenUsage: vi.fn(async () => 'unknown'),
-  }))
-  vi.doMock('../lib/hosts-config', () => ({
-    isSelf: vi.fn(() => true),
-    getHostById: vi.fn(),
-    getSelfHostId: vi.fn(() => 'local'),
   }))
   vi.doMock('../lib/agent-runtime', () => ({
     getRuntime: vi.fn(() => ({
@@ -180,7 +171,6 @@ describe('collab bridge lifecycle', () => {
     vi.doUnmock('child_process')
     vi.doUnmock('../lib/ensemble-registry')
     vi.doUnmock('../lib/agent-spawner')
-    vi.doUnmock('../lib/hosts-config')
     vi.doUnmock('../lib/agent-runtime')
     vi.doUnmock('../lib/agent-config')
 

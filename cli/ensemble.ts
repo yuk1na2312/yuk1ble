@@ -486,7 +486,6 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
   const agents = agentNames.map((name, i) => ({
     program: name,
     role: i === 0 ? 'lead' : 'worker',
-    hostId: 'local',
   }))
 
   // 3. Create team

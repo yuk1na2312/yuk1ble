@@ -243,7 +243,6 @@ $('newTeam').onsubmit = e => {
     agents: programs.map((program, i) => ({
       program,
       role: i === 0 ? 'lead' : 'worker',
-      hostId: 'local',
     })),
     feedMode: 'live',
   }
