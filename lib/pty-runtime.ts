@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'fs'
-import { execFile, execFileSync } from 'child_process'
 import { basename, delimiter, join } from 'path'
 import headless from '@xterm/headless'
 import type { Terminal as HeadlessTerminal } from '@xterm/headless'
 import * as pty from 'node-pty'
 import type { AgentRuntime, DiscoveredSession } from './agent-runtime'
+import { killProcessTree, killProcessTreeSync, quotePowerShell } from './win-process'
 
 const { Terminal } = headless
 
@@ -104,24 +104,6 @@ function validateEnvironmentKey(key: string): string {
     throw new Error(`Invalid environment variable name: ${key}`)
   }
   return key
-}
-
-function quotePowerShell(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
-
-function killProcessTree(pid: number): Promise<void> {
-  return new Promise(resolve => {
-    execFile('taskkill', ['/T', '/F', '/PID', String(pid)], () => resolve())
-  })
-}
-
-function killProcessTreeSync(pid: number): void {
-  try {
-    execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' })
-  } catch {
-    // The process tree may already have exited.
-  }
 }
 
 async function killAll(): Promise<void> {

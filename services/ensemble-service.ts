@@ -27,7 +27,8 @@ import {
 } from '../lib/collab-paths'
 import fs from 'fs'
 import path from 'path'
-import { execFile, execFileSync, spawn } from 'child_process'
+import { execFile, spawn } from 'child_process'
+import { killProcessTree, killProcessTreeSync } from '../lib/win-process'
 import { fileURLToPath } from 'url'
 import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from '../lib/worktree-manager'
 import { runStagedWorkflow } from '../lib/staged-workflow'
@@ -168,18 +169,6 @@ function clearBridgePidFile(teamId: string, pid: number): void {
   try {
     if (readBridgePidFile(teamId) === pid) fs.rmSync(collabBridgePid(teamId), { force: true })
   } catch { /* best effort */ }
-}
-
-function killProcessTree(pid: number): Promise<void> {
-  return new Promise(resolve => {
-    execFile('taskkill', ['/T', '/F', '/PID', String(pid)], () => resolve())
-  })
-}
-
-function killProcessTreeSync(pid: number): void {
-  try {
-    execFileSync('taskkill', ['/T', '/F', '/PID', String(pid)], { stdio: 'ignore' })
-  } catch { /* the tree may already have exited */ }
 }
 
 function readProcessCommandLine(pid: number): Promise<string> {

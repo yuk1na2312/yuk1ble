@@ -9,6 +9,10 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { getRuntime } from './agent-runtime'
 import { buildAgentCommandParts } from './agent-config'
+import { quotePowerShell } from './win-process'
+
+// Kept under its old name for existing callers and tests.
+export { quotePowerShell as shellEscape }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -30,17 +34,6 @@ interface SpawnAgentOptions {
 /** Compute a runtime session name from an agent name. */
 function computeSessionName(agentName: string): string {
   return agentName.replace(/[^a-zA-Z0-9\-_.]/g, '')
-}
-
-/**
- * Quote a single token as a PowerShell single-quoted literal.
- *
- * Single quotes make PowerShell treat the contents verbatim — no `$var`
- * interpolation, no backtick escapes, no `;`/`|` statement separation — so the
- * only character needing escaping is `'` itself, which is doubled.
- */
-export function shellEscape(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
 }
 
 /**
@@ -76,7 +69,7 @@ function normalizeDirArg(dir: string): string {
  */
 export function toPowerShellCommandLine(parts: string[]): string {
   if (parts.length === 0) return ''
-  return `& ${parts.map(shellEscape).join(' ')}`
+  return `& ${parts.map(quotePowerShell).join(' ')}`
 }
 
 /** Resolve program name to a PowerShell-runnable CLI command, adding runtime flags for cwd handling */
