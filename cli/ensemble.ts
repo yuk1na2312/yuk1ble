@@ -236,10 +236,16 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
   const agentNames = agentFlags
     ? agentFlags.split(',').map(s => s.trim())
     : ['codex', 'claude code']
-  const agents = agentNames.map((name, i) => ({
-    program: name,
-    role: i === 0 ? 'lead' : 'worker',
-  }))
+  // `program` or `program:model`; the model is checked by the server against that program's catalog.
+  const agents = agentNames.map((spec, i) => {
+    const colon = spec.indexOf(':')
+    const model = colon < 0 ? '' : spec.slice(colon + 1).trim()
+    return {
+      program: colon < 0 ? spec : spec.slice(0, colon).trim(),
+      ...(model ? { model } : {}),
+      role: i === 0 ? 'lead' : 'worker',
+    }
+  })
 
   // 3. Create team. The server answers 202 as soon as the team record exists;
   // agents are spawned and prompted in the background and report through the feed.

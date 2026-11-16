@@ -38,6 +38,11 @@ describe('POST /api/ensemble/teams', () => {
     ['a blank program', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: '  ' }] }), 'agents[1].program'],
     ['a null agent', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, null] }), 'agents[1].program'],
     ['a numeric workingDirectory', JSON.stringify({ ...valid, workingDirectory: 42 }), 'workingDirectory'],
+    ['a model outside the program catalog', JSON.stringify({ ...valid, agents: [{ program: 'codex', model: 'gpt-4' }, { program: 'claude' }] }), 'agents[0].model "gpt-4" is not available for codex; available: gpt-5.6-sol'],
+    ['a model of another program', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'claude code', model: 'gpt-5.6-sol' }] }), 'agents[1].model "gpt-5.6-sol" is not available for claude; available: fable, opus, sonnet'],
+    ['a model for a program without a catalog', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'plain', model: 'x' }] }), 'this program has no model catalog'],
+    ['a non-string model', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'claude', model: 7 }] }), 'agents[1].model must be a non-empty string'],
+    ['a blank model', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'claude', model: ' ' }] }), 'agents[1].model must be a non-empty string'],
     ['an unknown program', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'gpt' }] }), 'unknown program "gpt"; available: codex, claude, plain'],
     ['a near-miss program name', JSON.stringify({ ...valid, agents: [{ program: 'claudex' }, { program: 'codex' }] }), 'unknown program "claudex"'],
   ])('%s', (_label, body, expected) => {
@@ -83,5 +88,24 @@ describe('POST /api/ensemble/teams', () => {
     const done = await getTeam(team.id)
     expect(done.team.agents.map(a => a.status)).toEqual(['active', 'active'])
     expect(done.messages.filter(m => m.content.includes('has joined')).map(m => m.seq)).toEqual([1, 2])
+  }, 30_000)
+
+  it('records a chosen model on the agent and hands it to the spawner; no model stays absent', async () => {
+    server.spawnLocalAgent.mockClear()
+    server.spawnLocalAgent.mockImplementation(async ({ name }) => ({ id: `${name}-id` }))
+
+    const res = await post(JSON.stringify({
+      ...valid, name: 'model-team',
+      agents: [{ program: 'codex', model: 'gpt-5.6-sol' }, { program: 'claude code' }],
+    }))
+
+    expect(res.status).toBe(202)
+    const { team } = await res.json() as { team: EnsembleTeam }
+    expect(team.agents[0]).toMatchObject({ name: 'codex-1', model: 'gpt-5.6-sol' })
+    expect('model' in team.agents[1]).toBe(false)
+    await expect.poll(() => server.spawnLocalAgent.mock.calls.length, { timeout: 5000 }).toBe(2)
+    const spawned = server.spawnLocalAgent.mock.calls.map(c => c[0] as unknown as { name: string; model?: string })
+    expect(spawned.map(s => [s.name, s.model])).toEqual([['model-team-codex-1', 'gpt-5.6-sol'], ['model-team-claude-2', undefined]])
+    expect((await getTeam(team.id)).team.agents[0].model).toBe('gpt-5.6-sol')
   }, 30_000)
 })

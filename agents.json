@@ -25,6 +25,8 @@
       { "pattern": "(\\d+)%\\s*left", "format": "$1% budget left" }
     ],
     "stripEnv": ["^OPENAI_(API_KEY|BASE_URL|ORGANIZATION)$"],
+    "modelFlag": "--model",
+    "models": [{ "id": "gpt-5.6-sol", "label": "Sol" }],
     "color": "#6aa9ff",
     "icon": "◆"
   },
@@ -56,6 +58,12 @@
       "^CLAUDE_CODE_",
       "^CLAUDECODE$",
       "^CLAUDE_(PID|EFFORT)$"
+    ],
+    "modelFlag": "--model",
+    "models": [
+      { "id": "fable", "label": "Fable 5" },
+      { "id": "opus", "label": "Opus 5" },
+      { "id": "sonnet", "label": "Sonnet 5" }
     ],
     "color": "#7ec98f",
     "icon": "●"

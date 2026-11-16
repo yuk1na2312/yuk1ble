@@ -17,7 +17,7 @@ import {
 import { getRuntime } from '../lib/agent-runtime'
 import { getFeedFile } from '../lib/ensemble-paths'
 import { ensureSubmitted } from '../lib/paste-submit'
-import { resolveAgentProgram, resolveReadyMarkers, listProgramNames } from '../lib/agent-config'
+import { resolveAgentProgram, resolveReadyMarkers, listProgramNames, resolveAgentModels, isValidModel } from '../lib/agent-config'
 import { waitForReady as waitForReadyScreen } from '../lib/readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
 import { bus } from '../lib/bus'
@@ -308,6 +308,16 @@ function validateCreateRequest(raw: unknown): string | undefined {
     if (!resolveAgentProgram(program)) {
       return `unknown program "${program}"; available: ${listProgramNames().join(', ')}`
     }
+    // An unlisted model makes the CLI exit at once and the readiness wait burn its whole window, so reject it here.
+    const model = (agent as { model?: unknown }).model
+    if (model !== undefined) {
+      if (!isNonEmptyString(model)) return `agents[${i}].model must be a non-empty string`
+      if (!isValidModel(program, model)) {
+        const ids = resolveAgentModels(program).map(m => m.id)
+        return `agents[${i}].model "${model}" is not available for ${resolveAgentProgram(program)?.name ?? program}; `
+          + (ids.length ? `available: ${ids.join(', ')}` : 'this program has no model catalog')
+      }
+    }
   }
   if (body.workingDirectory !== undefined && typeof body.workingDirectory !== 'string') {
     return 'workingDirectory must be a string'
@@ -429,6 +439,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
         name: agentName,
         program: agentSpec.program,
         workingDirectory: agentCwd,
+        model: agentSpec.model,
       })
 
       if (teamWasDisbanded()) {

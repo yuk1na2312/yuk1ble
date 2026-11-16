@@ -81,6 +81,14 @@ describe('start command: cwd and repo-root flags come from the adapter', () => {
     expect(resolveStartCommand('claude', cwd)).not.toContain(REPO_ROOT)
   })
 
+  it('quotes the model flag and its value as two tokens, before the cwd flag', async () => {
+    const { resolveStartCommand } = await spawner()
+    expect(resolveStartCommand('codex', cwd, 'gpt-5.6-sol')).toBe(
+      `& 'codex' '--dangerously-bypass-approvals-and-sandbox' '--model' 'gpt-5.6-sol' '--cd' '${cwd}'`,
+    )
+    expect(resolveStartCommand('claude', REPO_ROOT, 'sonnet')).toBe("& 'claude' '--permission-mode' 'auto' '--model' 'sonnet'")
+  })
+
   it('refuses an unknown program instead of launching claude', async () => {
     const { resolveStartCommand } = await spawner()
     expect(() => resolveStartCommand('gpt', cwd)).toThrow('unknown program "gpt"; available: codex, claude')

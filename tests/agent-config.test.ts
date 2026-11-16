@@ -7,7 +7,7 @@ import { promisify } from 'util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentConfigError, UnknownProgramError, clearAgentsConfigCache, loadAgentsConfig, parseAgentsConfig,
-  requireAgentProgram, resolveAgentProgram, resolveReadyMarkers,
+  buildAgentCommandParts, isValidModel, requireAgentProgram, resolveAgentModels, resolveAgentProgram, resolveReadyMarkers,
 } from '../lib/agent-config'
 import { FIXTURE_AGENTS_CONFIG } from './helpers/boot-server'
 
@@ -176,5 +176,60 @@ describe('resolving a program', () => {
     expect(error).toBeInstanceOf(UnknownProgramError)
     expect((error as UnknownProgramError).message).toBe('unknown program "gpt"; available: codex, claude, plain')
     expect(() => resolveReadyMarkers('gpt')).toThrow(UnknownProgramError)
+  })
+})
+
+describe('models', () => {
+  beforeEach(() => {
+    process.env.ENSEMBLE_AGENTS_CONFIG = FIXTURE_AGENTS_CONFIG
+    delete process.env.ENSEMBLE_AGENT_FLAGS
+    clearAgentsConfigCache()
+  })
+  afterEach(() => { delete process.env.ENSEMBLE_AGENTS_CONFIG; delete process.env.ENSEMBLE_AGENT_FLAGS; clearAgentsConfigCache() })
+
+  it('lists the catalog of a program, through its aliases', () => {
+    expect(resolveAgentModels('claude code').map(m => m.id)).toEqual(['fable', 'opus', 'sonnet'])
+    expect(resolveAgentModels('codex')).toEqual([{ id: 'gpt-5.6-sol', label: 'Sol' }])
+    expect(resolveAgentModels('plain')).toEqual([])
+    expect(resolveAgentModels('nonsense')).toEqual([])
+  })
+
+  it('accepts only ids in the catalog of that very program', () => {
+    expect(isValidModel('claude code', 'sonnet')).toBe(true)
+    expect(isValidModel('codex', 'gpt-5.6-sol')).toBe(true)
+    expect(isValidModel('codex', 'sonnet')).toBe(false)
+    expect(isValidModel('claude', 'haiku')).toBe(false)
+    expect(isValidModel('claude', 'Sonnet')).toBe(false)
+    expect(isValidModel('plain', 'anything')).toBe(false)
+  })
+
+  it('appends the model as two separate argv tokens, and nothing when there is none', () => {
+    expect(buildAgentCommandParts('claude', 'sonnet')).toEqual(['claude', '--permission-mode', 'auto', '--model', 'sonnet'])
+    expect(buildAgentCommandParts('claude')).toEqual(['claude', '--permission-mode', 'auto'])
+    expect(buildAgentCommandParts('codex', 'gpt-5.6-sol')).toEqual([
+      'codex', '--dangerously-bypass-approvals-and-sandbox', '--model', 'gpt-5.6-sol',
+    ])
+  })
+
+  it('passes no flag for a program that has no modelFlag', () => {
+    expect(buildAgentCommandParts('plain', 'whatever')).toEqual(['plain'])
+  })
+
+  it('lets an ENSEMBLE_AGENT_FLAGS --model win over the picker', () => {
+    process.env.ENSEMBLE_AGENT_FLAGS = '--model opus'
+    expect(buildAgentCommandParts('claude', 'sonnet')).toEqual(['claude', '--model', 'opus', '--permission-mode', 'auto'])
+    process.env.ENSEMBLE_AGENT_FLAGS = '--model=opus'
+    expect(buildAgentCommandParts('claude', 'sonnet')).not.toContain('sonnet')
+  })
+})
+
+describe('the shipped model catalog', () => {
+  beforeEach(() => { delete process.env.ENSEMBLE_AGENTS_CONFIG; clearAgentsConfigCache() })
+  afterEach(() => clearAgentsConfigCache())
+
+  it('holds only the verified ids', () => {
+    expect(resolveAgentModels('codex').map(m => m.id)).toEqual(['gpt-5.6-sol'])
+    expect(resolveAgentModels('claude').map(m => m.id)).toEqual(['fable', 'opus', 'sonnet'])
+    for (const name of ['aider', 'gemini', 'opencode']) expect(resolveAgentModels(name)).toEqual([])
   })
 })

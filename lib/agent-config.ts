@@ -269,14 +269,27 @@ export function resolveReadyMarkers(program: string): string[] {
   return requireAgentProgram(program).readyMarkers
 }
 
+/** The model catalog of a program; empty when it has none or the program is unknown. */
+export function resolveAgentModels(program: string): AgentModel[] {
+  return resolveAgentProgram(program)?.models ?? []
+}
+
+/** True when `model` is in the program's catalog. The program is normalised first, so "claude code" works. */
+export function isValidModel(program: string, model: string): boolean {
+  return resolveAgentModels(program).some(m => m.id === model)
+}
+
 /**
  * Build the full CLI command for an agent as an array of unescaped tokens.
  *
  * Tokens are deliberately left unescaped: callers either hand them straight to
  * execFile/spawn, or quote them for a specific shell themselves (see
  * `toPowerShellCommandLine` in lib/agent-spawner.ts).
+ *
+ * A model is appended as two tokens, [modelFlag, model]. ENSEMBLE_AGENT_FLAGS
+ * outranks both the default flags and the model: it is the operator override.
  */
-export function buildAgentCommandParts(program: string): string[] {
+export function buildAgentCommandParts(program: string, model?: string): string[] {
   const agent = requireAgentProgram(program)
   const envFlags = (process.env['ENSEMBLE_AGENT_FLAGS'] ?? '').trim()
 
@@ -300,5 +313,11 @@ export function buildAgentCommandParts(program: string): string[] {
     }
   }
 
-  return [agent.command, ...envTokens, ...defaultTokens]
+  const modelTokens: string[] = []
+  if (model && agent.modelFlag) {
+    const flag = agent.modelFlag
+    if (!envTokens.some(token => token === flag || token.startsWith(`${flag}=`))) modelTokens.push(flag, model)
+  }
+
+  return [agent.command, ...envTokens, ...defaultTokens, ...modelTokens]
 }

@@ -29,6 +29,8 @@ interface SpawnAgentOptions {
   name: string
   program: string
   workingDirectory: string
+  /** A catalog model id; absent means no model flag. */
+  model?: string
 }
 
 /** Compute a runtime session name from an agent name. */
@@ -82,9 +84,9 @@ function hasFlag(parts: string[], flags: string[]): boolean {
  * which flags carry the working directory and the repo root; nothing here knows
  * a program by name.
  */
-export function resolveStartCommand(program: string, cwd: string): string {
+export function resolveStartCommand(program: string, cwd: string, model?: string): string {
   const agent = requireAgentProgram(program)
-  const parts = buildAgentCommandParts(program)
+  const parts = buildAgentCommandParts(program, model)
 
   if (agent.cwdFlag && !hasFlag(parts, [agent.cwdFlag, ...(agent.cwdFlagAliases ?? [])])) {
     parts.push(agent.cwdFlag, normalizeDirArg(cwd))
@@ -113,7 +115,7 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
   await new Promise(r => setTimeout(r, 300))
 
   // Start the AI program
-  const startCommand = resolveStartCommand(options.program, cwd)
+  const startCommand = resolveStartCommand(options.program, cwd, options.model)
 
   await runtime.sendKeys(sessionName, startCommand, { literal: true, enter: true })
 

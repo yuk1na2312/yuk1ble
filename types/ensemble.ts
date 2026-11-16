@@ -16,6 +16,8 @@ export interface EnsembleTeamAgent {
   name: string
   program: string
   role: string
+  /** Model requested at creation. Absent means no model flag was passed: the CLI used its own default. */
+  model?: string
   /** Legacy field from remote-host support. Kept optional so old teams.json records still load; nothing reads it. */
   hostId?: string
   status: 'spawning' | 'active' | 'idle' | 'done' | 'failed'
@@ -57,6 +59,8 @@ export interface CreateTeamRequest {
   agents: Array<{
     program: string
     role?: string
+    /** Must be in the program's catalog (agents.json). Absent means the CLI default. */
+    model?: string
     /** Accepted and ignored: all agents run locally. */
     hostId?: string
   }>
