@@ -99,9 +99,8 @@ describe('onboarding smoke test', () => {
     vi.restoreAllMocks()
   })
 
-  // Explicit timeout: this test does a real createEnsembleTeam (which now also
-  // spawns a detached collab bridge), and runs ~4.5s against vitest's 5s default
-  // — close enough to flake under full-suite parallelism.
+  // Explicit timeout: boots a real server and runs three CLI subprocesses, which
+  // is close enough to vitest's 5s default to flake under full-suite parallelism.
   it('supports the documented quick start through health, CLI, and first team creation', { timeout: 20_000 }, async () => {
     const cliPath = path.resolve(process.cwd(), 'bin/ensemble.cjs')
     const cliEnv = {

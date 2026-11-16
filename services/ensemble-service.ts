@@ -23,14 +23,11 @@ import { AgentWatchdog } from '../lib/agent-watchdog'
 import { bus } from '../lib/bus'
 import {
   collabPromptFile, collabDeliveryFile, collabSummaryFile,
-  collabRuntimeDir, collabFinishedMarker, collabBridgePosted,
-  collabBridgeResult, collabBridgeLog, collabBridgePid,
+  collabRuntimeDir, collabFinishedMarker,
   ensureCollabDirs, scrubCollabRuntimePaths,
 } from '../lib/collab-paths'
 import fs from 'fs'
 import path from 'path'
-import { execFile, spawn } from 'child_process'
-import { killProcessTree, killProcessTreeSync } from '../lib/win-process'
 import { fileURLToPath } from 'url'
 import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from '../lib/worktree-manager'
 import { runStagedWorkflow } from '../lib/staged-workflow'
@@ -113,216 +110,6 @@ const AUTO_CONFIRM_GATES: AutoConfirmGate[] = [
   },
 ]
 
-// ─── Collab bridge lifecycle ────────────────────────────────────────────────
-//
-// `ensemble bridge <teamId>` is the ONLY component that turns a `team-say`
-// append into a *push* delivery: it tails messages.jsonl and POSTs every new
-// line to /api/ensemble/teams/:id, which is what reaches sendTeamMessage() and
-// therefore pasteFromFile into the recipient's PTY. Without a running bridge
-// the bus degrades to pull-only and a silent agent is never woken — so the
-// server owns the bridge's lifecycle: spawn on team creation, tree-kill on
-// disband.
-//
-// The bridge is spawned detached (it must outlive an individual request) and
-// therefore has to be tracked explicitly, in two places:
-//   1. `bridgePids` — in-memory, marks pids THIS server process spawned, which
-//      are trusted for killing without further checks.
-//   2. `bridge.pid` in the team runtime dir — survives a server restart, but a
-//      pid read back from it may be stale (the bridge died and Windows recycled
-//      its pid onto an unrelated process), so it must be verified before any
-//      kill. See `isBridgeProcess`.
-
-const DEFAULT_BRIDGE_STOP_GRACE_MS = 1500
-const BRIDGE_STOP_POLL_MS = 100
-
-interface TrackedBridge {
-  pid: number
-  /** True when this server process spawned it — safe to kill without verifying. */
-  owned: boolean
-}
-
-const bridgePids = new Map<string, TrackedBridge>()
-
-/** Grace period a disbanding bridge gets to exit on its own .finished marker. */
-function getBridgeStopGraceMs(): number {
-  const raw = Number.parseInt(process.env.ENSEMBLE_BRIDGE_STOP_GRACE_MS || '', 10)
-  return Number.isInteger(raw) && raw >= 0 ? raw : DEFAULT_BRIDGE_STOP_GRACE_MS
-}
-
-function readBridgePidFile(teamId: string): number {
-  try {
-    const pid = Number.parseInt(fs.readFileSync(collabBridgePid(teamId), 'utf-8').trim(), 10)
-    return Number.isInteger(pid) && pid > 0 ? pid : 0
-  } catch {
-    return 0
-  }
-}
-
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function clearBridgePidFile(teamId: string, pid: number): void {
-  try {
-    if (readBridgePidFile(teamId) === pid) fs.rmSync(collabBridgePid(teamId), { force: true })
-  } catch { /* best effort */ }
-}
-
-function readProcessCommandLine(pid: number): Promise<string> {
-  return new Promise(resolve => {
-    execFile(
-      'powershell.exe',
-      [
-        '-NoProfile', '-NonInteractive', '-Command',
-        `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`,
-      ],
-      { timeout: 5000, windowsHide: true },
-      (error, stdout) => resolve(error ? '' : String(stdout).trim()),
-    )
-  })
-}
-
-/**
- * Prove a pid really is this team's bridge before killing it. Used for pids
- * recovered from bridge.pid after a server restart, where the original process
- * may be long gone and its pid recycled. The bridge is spawned as
- * `node --import tsx cli/ensemble.ts bridge <teamId>`, so both the literal
- * `bridge` verb and the team id appear in its command line.
- */
-async function isBridgeProcess(pid: number, teamId: string): Promise<boolean> {
-  const commandLine = await readProcessCommandLine(pid)
-  if (!commandLine) return false
-  return commandLine.includes(teamId) && /(^|[\s"'/\\])bridge(\s|$)/i.test(commandLine)
-}
-
-/**
- * Start the message bridge for a team. Never throws: a missing CLI entrypoint
- * or an EACCES on spawn degrades the team to pull-only delivery, which is far
- * better than failing team creation outright.
- */
-export function startCollabBridge(teamId: string): number | undefined {
-  try {
-    ensureCollabDirs(teamId)
-  } catch (err) {
-    console.error(`[Ensemble] Cannot prepare runtime dir for bridge ${teamId}:`, err)
-    return undefined
-  }
-
-  // Never double-spawn. Covers both a bridge we started earlier in this process
-  // and one that survived a server restart; the CLI keeps its own pid-file
-  // guard (cli/ensemble.ts) as a second line of defence.
-  const existing = bridgePids.get(teamId)?.pid || readBridgePidFile(teamId)
-  if (existing && isProcessAlive(existing)) {
-    if (!bridgePids.has(teamId)) bridgePids.set(teamId, { pid: existing, owned: false })
-    console.log(`[Ensemble] Collab bridge already running for ${teamId} (pid ${existing})`)
-    return existing
-  }
-
-  try {
-    const logFd = fs.openSync(collabBridgeLog(teamId), 'a')
-    try {
-      const child = spawn(
-        process.execPath,
-        ['--import', 'tsx', path.join(REPO_ROOT, 'cli', 'ensemble.ts'), 'bridge', teamId],
-        {
-          cwd: REPO_ROOT,
-          detached: true,
-          windowsHide: true,
-          stdio: ['ignore', logFd, logFd],
-          env: { ...process.env, ENSEMBLE_ROOT: REPO_ROOT },
-        },
-      )
-
-      child.on('error', (err: Error) => {
-        console.error(`[Ensemble] Collab bridge for ${teamId} failed to start: ${err.message}`)
-        if (child.pid && bridgePids.get(teamId)?.pid === child.pid) bridgePids.delete(teamId)
-      })
-      child.unref()
-
-      if (!child.pid) {
-        console.error(`[Ensemble] Collab bridge for ${teamId} produced no pid — push delivery degraded`)
-        return undefined
-      }
-
-      bridgePids.set(teamId, { pid: child.pid, owned: true })
-      // Write the pid ourselves instead of waiting for the bridge to do it, so a
-      // disband racing bridge startup still has something to kill. The bridge
-      // writes the same value moments later, and its own guard treats a pid file
-      // holding its own pid as "not another instance".
-      try {
-        fs.writeFileSync(collabBridgePid(teamId), `${child.pid}\n`, 'utf8')
-      } catch { /* the bridge writes it too */ }
-
-      console.log(`[Ensemble] Collab bridge started for ${teamId} (pid ${child.pid})`)
-      return child.pid
-    } finally {
-      // The fd is duplicated into the child at spawn time.
-      try { fs.closeSync(logFd) } catch { /* already closed */ }
-    }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error(`[Ensemble] Could not spawn collab bridge for ${teamId}: ${message}`)
-    console.error('[Ensemble] Continuing without push delivery — team-read still works')
-    return undefined
-  }
-}
-
-/**
- * Stop a team's bridge. Callers should write the .finished marker first: the
- * bridge polls it every 500ms and shuts itself down cleanly after flushing, so
- * the tree-kill below is only the guarantee, not the normal path.
- */
-export async function stopCollabBridge(teamId: string): Promise<void> {
-  const tracked = bridgePids.get(teamId)
-  const pid = tracked?.pid || readBridgePidFile(teamId)
-  bridgePids.delete(teamId)
-  if (!pid) return
-
-  if (!isProcessAlive(pid)) {
-    clearBridgePidFile(teamId, pid)
-    return
-  }
-
-  const deadline = Date.now() + getBridgeStopGraceMs()
-  while (Date.now() < deadline) {
-    await new Promise(resolve => setTimeout(resolve, BRIDGE_STOP_POLL_MS))
-    if (!isProcessAlive(pid)) {
-      clearBridgePidFile(teamId, pid)
-      return
-    }
-  }
-
-  if (!tracked?.owned && !(await isBridgeProcess(pid, teamId))) {
-    // Stale bridge.pid pointing at a recycled/unrelated pid — killing it would
-    // take down someone else's process. Leave both the process and the file be;
-    // a real bridge would exit on the .finished marker anyway.
-    console.warn(`[Ensemble] bridge.pid ${pid} for ${teamId} is not a bridge process — not killing`)
-    return
-  }
-
-  await killProcessTree(pid)
-  clearBridgePidFile(teamId, pid)
-  console.log(`[Ensemble] Collab bridge stopped for ${teamId} (pid ${pid})`)
-}
-
-/** Exit-handler safety net: detached bridges outlive the server unless killed. */
-function stopAllCollabBridgesSync(): void {
-  for (const [teamId, tracked] of bridgePids) {
-    // Only pids this process spawned — a synchronous handler cannot verify the
-    // rest, and the server is going down anyway.
-    if (!tracked.owned || !isProcessAlive(tracked.pid)) continue
-    killProcessTreeSync(tracked.pid)
-    clearBridgePidFile(teamId, tracked.pid)
-  }
-  bridgePids.clear()
-}
-
 class EnsembleService {
   private readonly disbandingTeams = new Set<string>()
   private readonly idleCheckTimer: NodeJS.Timeout
@@ -368,8 +155,6 @@ class EnsembleService {
       const age = now - new Date(team.createdAt).getTime()
       if (age > staleThresholdMs) {
         updateTeam(team.id, { ...team, status: 'disbanded' })
-        // A bridge from a previous server run may still be tailing this team.
-        void stopCollabBridge(team.id).catch(() => { /* best effort */ })
         count++
       }
     }
@@ -462,7 +247,6 @@ class EnsembleService {
     clearInterval(this.idleCheckTimer)
     this.unsubscribeMessages()
     this.watchdog.stop()
-    stopAllCollabBridgesSync()
   }
 }
 
@@ -640,11 +424,6 @@ export async function createEnsembleTeam(
   }
 
   updateTeam(team.id, { ...team, status: 'active' })
-
-  // Start the message bridge before any prompt is injected: it is the only
-  // path from a `team-say` append to a push delivery into a teammate's PTY.
-  // Failure here is non-fatal — the team stays usable via `team-read`.
-  startCollabBridge(team.id)
 
   // Phase 2: Wait for ALL agents to be ready, then inject prompts
   const activeAgents = team.agents.filter(a => a.status === 'active')
@@ -926,12 +705,29 @@ export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ mes
   return { data: { messages: getMessages(teamId, since) }, status: 200 }
 }
 
+/**
+ * Deliveries to one session run one at a time. Two messages for the same agent
+ * (a teammate and the GUI, say) would otherwise share its delivery file and
+ * interleave their pastes in the composer. Different sessions run in parallel.
+ */
+const sessionQueues = new Map<string, Promise<void>>()
+
+function runExclusive(sessionName: string, task: () => Promise<void>): Promise<void> {
+  const run = (sessionQueues.get(sessionName) ?? Promise.resolve()).then(task)
+  const tail = run.catch(() => {}).then(() => {
+    if (sessionQueues.get(sessionName) === tail) sessionQueues.delete(sessionName)
+  })
+  sessionQueues.set(sessionName, tail)
+  return run
+}
+
 export async function sendTeamMessage(
   teamId: string, to: string, content: string, from?: string,
   existingId?: string, existingTimestamp?: string,
 ): Promise<ServiceResult<{ message: EnsembleMessage }>> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
+  if (typeof content !== 'string' || !content.trim()) return { error: 'content is required', status: 400 }
 
   const message: EnsembleMessage = {
     id: existingId || randomUUID(), teamId, from: from || 'user', to, content,
@@ -947,36 +743,37 @@ export async function sendTeamMessage(
 
   const runtime = getRuntime()
 
-  for (const targetAgent of recipients) {
-    try {
-      const sessionName = `${team.name}-${targetAgent.name}`
+  await Promise.all(recipients.map(targetAgent => {
+    const sessionName = `${team.name}-${targetAgent.name}`
+    return runExclusive(sessionName, async () => {
+      try {
+        // Skip delivery if the agent's terminal session no longer exists (agent finished and exited)
+        const paneAlive = await runtime.sessionExists(sessionName)
+        if (!paneAlive) return
 
-      // Skip delivery if the agent's terminal session no longer exists (agent finished and exited)
-      const paneAlive = await runtime.sessionExists(sessionName)
-      if (!paneAlive) continue
+        // Wrap message with sender context + response nudge
+        const deliveryText = [
+          `[Team message from ${sender}]: ${content}`,
+          `→ Respond with team-say. Then run team-read to check for more messages.`,
+        ].join('\n')
 
-      // Wrap message with sender context + response nudge
-      const deliveryText = [
-        `[Team message from ${sender}]: ${content}`,
-        `→ Respond with team-say. Then run team-read to check for more messages.`,
-      ].join('\n')
-
-      // Always use pasteFromFile for message delivery to avoid shell escaping
-      // issues (typed input breaks on ?, !, `, $ and \ in PowerShell)
-      const tmpFile = collabDeliveryFile(teamId, sessionName)
-      fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
-      fs.writeFileSync(tmpFile, deliveryText)
-      await runtime.pasteFromFile(sessionName, tmpFile)
-      await ensureSubmitted(runtime, sessionName)
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      appendMessage(teamId, {
-        id: randomUUID(), teamId, from: 'ensemble', to: 'team',
-        content: `❌ Delivery to ${targetAgent.name} failed: ${reason}`,
-        type: 'chat', timestamp: new Date().toISOString(),
-      })
-    }
-  }
+        // Always use pasteFromFile for message delivery to avoid shell escaping
+        // issues (typed input breaks on ?, !, `, $ and \ in PowerShell)
+        const tmpFile = collabDeliveryFile(teamId, sessionName)
+        fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
+        fs.writeFileSync(tmpFile, deliveryText)
+        await runtime.pasteFromFile(sessionName, tmpFile)
+        await ensureSubmitted(runtime, sessionName)
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err)
+        appendMessage(teamId, {
+          id: randomUUID(), teamId, from: 'ensemble', to: 'team',
+          content: `❌ Delivery to ${targetAgent.name} failed: ${reason}`,
+          type: 'chat', timestamp: new Date().toISOString(),
+        })
+      }
+    })
+  }))
 
   return { data: { message }, status: 200 }
 }
@@ -1105,21 +902,17 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
     completedAt: new Date().toISOString(),
   })
 
-  // Signal the bridge to stop *before* touching its bookkeeping files: it polls
-  // the .finished marker and exits cleanly on it, flushing anything queued.
+  // .finished is written after summary.txt: anything watching the runtime dir
+  // (the /collab skill) treats it as "safe to read the summary".
   try {
     fs.mkdirSync(collabRuntimeDir(teamId), { recursive: true })
     fs.writeFileSync(collabFinishedMarker(teamId), new Date().toISOString())
   } catch { /* non-fatal cleanup */ }
-  await stopCollabBridge(teamId)
 
-  // Soft cleanup: remove ephemeral files, keep messages/summary/log
+  // Soft cleanup: remove ephemeral delivery files, keep summary and prompts
   try {
     const deliveryDir = path.join(collabRuntimeDir(teamId), 'delivery')
     if (fs.existsSync(deliveryDir)) fs.rmSync(deliveryDir, { recursive: true, force: true })
-    for (const f of [collabBridgeResult(teamId), collabBridgePosted(teamId)]) {
-      if (fs.existsSync(f)) fs.unlinkSync(f)
-    }
   } catch { /* non-fatal cleanup */ }
 
   return { data: { team: updated! }, status: 200 }

@@ -6,7 +6,12 @@
  *   ensemble run "task" [--agents x,y]      Run headless (no Claude Code needed)
  *   ensemble teams                          List all teams
  *   ensemble steer <team-id> <message>      Send a message to a team
+ *   ensemble team-say <team-id> <from> <to> <message>
+ *   ensemble team-read <team-id>
  *   ensemble status                         Server health + active teams
+ *
+ * A pure HTTP client. It must never load the runtime or the store: PTY sessions
+ * live in the server process, and a second registry here would always be empty.
  */
 
 import http from 'http'
@@ -14,23 +19,9 @@ import fs from 'fs'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
-import { randomUUID } from 'crypto'
-import { setRuntime } from '../lib/agent-runtime'
-import { PtyRuntime } from '../lib/pty-runtime'
-import { acquireFileLock } from '../lib/ensemble-registry'
-import {
-  collabBridgePid,
-  collabBridgePosted,
-  collabBridgeResult,
-  collabFinishedMarker,
-  collabMessagesFile,
-  ensureCollabDirs,
-} from '../lib/collab-paths'
 import type { EnsembleMessage } from '../types/ensemble'
 
-setRuntime(new PtyRuntime())
-
-const API_BASE = process.env.ENSEMBLE_URL || 'http://localhost:23000'
+const API_BASE = process.env.ENSEMBLE_URL || `http://localhost:${process.env.ENSEMBLE_PORT || '23000'}`
 
 // Resolve package root (works both in dev and when installed via npm)
 const __cli_filename = fileURLToPath(import.meta.url)
@@ -83,30 +74,6 @@ function apiPost(urlPath: string, body: unknown): Promise<unknown> {
 
 // ─── Commands ───
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
-function readNonNegativeInteger(filePath: string): number {
-  if (!fs.existsSync(filePath)) return 0
-  const value = Number.parseInt(fs.readFileSync(filePath, 'utf8').trim(), 10)
-  return Number.isInteger(value) && value >= 0 ? value : 0
-}
-
-function writeCounter(filePath: string, value: number): void {
-  fs.writeFileSync(filePath, `${value}\n`, 'utf8')
-}
-
-function isProcessRunning(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 5000): Promise<Response> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -117,24 +84,33 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
   }
 }
 
-function cmdTeamSay(teamId: string, from: string, to: string, content: string): void {
-  ensureCollabDirs(teamId)
-  const messagesFile = collabMessagesFile(teamId)
-  const message: EnsembleMessage = {
-    id: randomUUID(),
-    teamId,
-    from,
-    to,
-    content,
-    type: 'chat',
-    timestamp: new Date().toISOString(),
+/**
+ * Post a message to the server, which records it and pastes it into the
+ * recipient's terminal. Agents rely on the exact "Sent to <recipient>" line, and
+ * on a non-zero exit when the message did not go out (server down, unknown team).
+ */
+async function cmdTeamSay(teamId: string, from: string, to: string, content: string): Promise<void> {
+  const endpoint = `${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}`
+  let response: Response
+  try {
+    // Generous: the server answers once the message is pasted into the recipient's terminal.
+    response = await fetchWithTimeout(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, content }),
+    }, 60_000)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.error(`team-say failed: cannot reach the ensemble server at ${API_BASE} (${reason}). Is it running? (npm run dev)`)
+    process.exitCode = 1
+    return
   }
 
-  const release = acquireFileLock(messagesFile)
-  try {
-    fs.appendFileSync(messagesFile, `${JSON.stringify(message)}\n`, 'utf8')
-  } finally {
-    release()
+  if (!response.ok) {
+    const detail = await response.json().then((b: { error?: string }) => b.error, () => undefined)
+    console.error(`team-say failed: HTTP ${response.status}${detail ? ` ${detail}` : ''}`)
+    process.exitCode = 1
+    return
   }
 
   console.log(`Sent to ${to}`)
@@ -150,229 +126,6 @@ async function cmdTeamRead(teamId: string): Promise<void> {
   for (const message of data.messages || []) {
     console.log(`${message.from} -> ${message.to}: ${message.content}`)
   }
-}
-
-interface BridgeMessage {
-  id?: unknown
-  from?: unknown
-  to?: unknown
-  content?: unknown
-  timestamp?: unknown
-}
-
-function parseBridgeMessage(line: string, lineIndex: number): BridgeMessage | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(line)
-  } catch {
-    console.error(`[bridge] skip malformed JSON line ${lineIndex}: ${line.slice(0, 80)}`)
-    return null
-  }
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    console.error(`[bridge] skip non-object line ${lineIndex}`)
-    return null
-  }
-  return parsed as BridgeMessage
-}
-
-async function postBridgeMessage(
-  teamId: string,
-  message: BridgeMessage,
-  lineIndex: number,
-): Promise<boolean> {
-  const content = typeof message.content === 'string' ? message.content : ''
-  if (!content) return true
-
-  const body = {
-    from: typeof message.from === 'string' ? message.from : '',
-    to: typeof message.to === 'string' ? message.to : 'team',
-    content,
-    id: typeof message.id === 'string' ? message.id : '',
-    timestamp: typeof message.timestamp === 'string' ? message.timestamp : '',
-  }
-  const endpoint = `${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}`
-
-  for (let attempt = 0; attempt < 10; attempt++) {
-    try {
-      const response = await fetchWithTimeout(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      if (response.ok) {
-        console.error(`[bridge] ${body.from || '?'} -> ${body.to || '?'}: ${content.slice(0, 60)}...`)
-        return true
-      }
-      if (response.status >= 400 && response.status < 500) {
-        console.error(`[bridge] client error ${response.status} on line ${lineIndex}, skipping permanently`)
-        return true
-      }
-
-      const delayMs = Math.min(30_000, 500 * (2 ** attempt))
-      console.error(
-        `[bridge] server error ${response.status} on line ${lineIndex}, ` +
-        `retry ${attempt + 1}/10 in ${(delayMs / 1000).toFixed(1)}s`,
-      )
-      if (attempt < 9) await sleep(delayMs)
-    } catch (error) {
-      const delayMs = Math.min(30_000, 500 * (2 ** attempt))
-      const reason = error instanceof Error ? error.message : String(error)
-      console.error(
-        `[bridge] network error on line ${lineIndex}, retry ${attempt + 1}/10 ` +
-        `in ${(delayMs / 1000).toFixed(1)}s: ${reason}`,
-      )
-      if (attempt < 9) await sleep(delayMs)
-    }
-  }
-
-  console.error(`[bridge] giving up on line ${lineIndex} after 10 retries`)
-  return false
-}
-
-// The bridge is spawned detached by the server, so nothing reaps it if the
-// server dies hard (crash, kill -9) without writing the .finished marker. Poll
-// health and self-terminate rather than tailing a file forever.
-const BRIDGE_HEALTH_POLL_MS = 30_000
-const BRIDGE_HEALTH_MAX_FAILURES = 3
-
-async function cmdBridge(teamId: string): Promise<void> {
-  ensureCollabDirs(teamId)
-  const messagesFile = collabMessagesFile(teamId)
-  const pidFile = collabBridgePid(teamId)
-  const postedFile = collabBridgePosted(teamId)
-  const resultFile = collabBridgeResult(teamId)
-  const finishedFile = collabFinishedMarker(teamId)
-
-  fs.closeSync(fs.openSync(messagesFile, 'a'))
-
-  const existingPid = readNonNegativeInteger(pidFile)
-  if (existingPid && existingPid !== process.pid && isProcessRunning(existingPid)) {
-    console.log(`[bridge] Already running for ${teamId} (pid ${existingPid})`)
-    return
-  }
-  fs.writeFileSync(pidFile, `${process.pid}\n`, 'utf8')
-
-  const cleanup = () => {
-    fs.unwatchFile(messagesFile)
-    fs.unwatchFile(finishedFile)
-    try {
-      if (readNonNegativeInteger(pidFile) === process.pid) fs.rmSync(pidFile, { force: true })
-    } catch { /* best effort */ }
-  }
-  process.once('exit', cleanup)
-  process.once('SIGINT', () => {
-    cleanup()
-    process.exit(0)
-  })
-  process.once('SIGTERM', () => {
-    cleanup()
-    process.exit(0)
-  })
-
-  const health = await fetchWithTimeout(`${API_BASE}/api/v1/health`)
-  if (!health.ok) {
-    cleanup()
-    throw new Error(`[bridge] health check failed for ${API_BASE}: HTTP ${health.status}`)
-  }
-
-  if (!fs.existsSync(postedFile)) writeCounter(postedFile, 0)
-  console.log(`[bridge] Watching ${messagesFile}`)
-
-  let processing = false
-  let rerunRequested = false
-  let retryTimer: NodeJS.Timeout | undefined
-  let healthFailures = 0
-
-  const healthTimer = setInterval(() => {
-    void (async () => {
-      try {
-        const response = await fetchWithTimeout(`${API_BASE}/api/v1/health`, {}, 3000)
-        if (response.ok) {
-          healthFailures = 0
-          return
-        }
-        healthFailures++
-      } catch {
-        healthFailures++
-      }
-
-      if (healthFailures >= BRIDGE_HEALTH_MAX_FAILURES) {
-        console.error(
-          `[bridge] server unreachable for ${BRIDGE_HEALTH_MAX_FAILURES} consecutive checks — exiting`,
-        )
-        clearInterval(healthTimer)
-        if (retryTimer) clearTimeout(retryTimer)
-        cleanup()
-        process.exit(0)
-      }
-    })()
-  }, BRIDGE_HEALTH_POLL_MS)
-
-  const processNewLines = async (): Promise<void> => {
-    if (processing) {
-      rerunRequested = true
-      return
-    }
-    processing = true
-    try {
-      if (fs.existsSync(finishedFile)) return
-
-      const text = fs.readFileSync(messagesFile, 'utf8')
-      const lines = text.split(/\r?\n/)
-      if (lines.at(-1) === '') lines.pop()
-
-      let posted = readNonNegativeInteger(postedFile)
-      if (posted > lines.length) {
-        posted = 0
-        writeCounter(postedFile, posted)
-      }
-
-      for (let index = posted; index < lines.length; index++) {
-        const line = lines[index].trim()
-        if (!line) {
-          posted = index + 1
-          writeCounter(postedFile, posted)
-          continue
-        }
-
-        const message = parseBridgeMessage(line, index)
-        const success = message === null || await postBridgeMessage(teamId, message, index)
-        if (!success) {
-          retryTimer = setTimeout(() => { void processNewLines() }, 1000)
-          break
-        }
-
-        posted = index + 1
-        writeCounter(postedFile, posted)
-        writeCounter(resultFile, posted)
-      }
-    } finally {
-      processing = false
-      if (rerunRequested) {
-        rerunRequested = false
-        void processNewLines()
-      }
-    }
-  }
-
-  fs.watchFile(messagesFile, { interval: 500 }, () => { void processNewLines() })
-  fs.watchFile(finishedFile, { interval: 500 }, () => { void processNewLines() })
-  await processNewLines()
-
-  await new Promise<void>(resolve => {
-    const finishPoll = setInterval(() => {
-      if (fs.existsSync(finishedFile)) {
-        if (retryTimer) clearTimeout(retryTimer)
-        clearInterval(healthTimer)
-        clearInterval(finishPoll)
-        cleanup()
-        console.log('[bridge] finished marker detected')
-        console.log('[bridge] stopping')
-        resolve()
-      }
-    }, 500)
-  })
 }
 
 async function cmdStatus() {
@@ -488,7 +241,8 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     role: i === 0 ? 'lead' : 'worker',
   }))
 
-  // 3. Create team
+  // 3. Create team. The server answers 202 as soon as the team record exists;
+  // agents are spawned and prompted in the background and report through the feed.
   const teamName = `run-${Date.now()}`
   const result = await apiPost('/api/ensemble/teams', {
     name: teamName,
@@ -496,55 +250,43 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     agents,
     feedMode: 'live',
     workingDirectory: cwd,
-  }) as { team: { id: string } }
+  }) as { team?: { id: string }; error?: string }
 
+  if (!result.team) {
+    console.error(`  ${c.red}Could not create the team:${c.r} ${result.error ?? 'unexpected response'}`)
+    process.exit(1)
+  }
   const teamId = result.team.id
-  const messagesFile = collabMessagesFile(teamId)
 
   console.log(`\n  ${c.bold}${c.bWhite}◈ ensemble run${c.r}`)
   console.log(`  ${c.dim}${task.slice(0, 100)}${c.r}`)
-  console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId.slice(0, 8)}${c.r} created with ${agentNames.join(' + ')}`)
+  console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId.slice(0, 8)}${c.r} created with ${agentNames.join(' + ')} ${c.dim}(agents are starting)${c.r}`)
   console.log(`  ${c.dim}Timeout: ${timeoutSec}s${c.r}\n`)
 
-  // 4. Tail messages until completion or timeout
+  // 4. Follow the team's feed over HTTP until it is disbanded or the timeout hits.
+  // A run ends when the team does (sentinel, manual disband or idle) — never on
+  // wording in a message.
   const deadline = Date.now() + timeoutSec * 1000
-  let lastLine = 0
-  const donePatterns = [/\bdone\b/i, /\bcomplete(?:d)?\b/i, /\bfinished\b/i, /\bafgerond\b/i]
+  let since = 0
 
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 3000))
 
-    if (!fs.existsSync(messagesFile)) continue
-    const lines = fs.readFileSync(messagesFile, 'utf-8').trim().split('\n').filter(Boolean)
-    if (lines.length <= lastLine) continue
-
-    for (let i = lastLine; i < lines.length; i++) {
-      try {
-        const msg = JSON.parse(lines[i])
-        const from = msg.from || '?'
-        const content = (msg.content || '').slice(0, 200)
-        console.log(`  ${c.cyan}${from}${c.r}: ${content}`)
-      } catch { /* skip */ }
-    }
-    lastLine = lines.length
-
-    // Check team status
     try {
+      const feed = await apiGet<{ messages: EnsembleMessage[] }>(
+        `/api/ensemble/teams/${teamId}/feed?since=${since}`,
+      )
+      for (const msg of feed.messages) {
+        console.log(`  ${c.cyan}${msg.from || '?'}${c.r}: ${(msg.content || '').slice(0, 200)}`)
+        since = Math.max(since, msg.seq ?? 0)
+      }
+
       const team = await apiGet<{ team: { status: string } }>(`/api/ensemble/teams/${teamId}`)
       if (team.team.status === 'disbanded') {
         console.log(`\n  ${c.bGreen}✓${c.r} Team finished (disbanded)`)
         process.exit(0)
       }
-    } catch { /* ignore */ }
-
-    // Check last few messages for done signals
-    const recentContent = lines.slice(-3).map(l => {
-      try { return JSON.parse(l).content || '' } catch { return '' }
-    }).join(' ')
-    if (donePatterns.some(p => p.test(recentContent))) {
-      console.log(`\n  ${c.bGreen}✓${c.r} Task appears complete`)
-      process.exit(0)
-    }
+    } catch { /* server busy; try again */ }
   }
 
   console.log(`\n  ${c.yellow}⏱${c.r} Timeout reached (${timeoutSec}s)`)
@@ -562,7 +304,7 @@ switch (cmd) {
       process.exitCode = 1
       break
     }
-    cmdTeamSay(args[0], args[1], args[2], args.slice(3).join(' '))
+    await cmdTeamSay(args[0], args[1], args[2], args.slice(3).join(' '))
     break
   case 'team-read':
     if (args.length !== 1) {
@@ -571,14 +313,6 @@ switch (cmd) {
       break
     }
     await cmdTeamRead(args[0])
-    break
-  case 'bridge':
-    if (args.length !== 1) {
-      console.error('Usage: ensemble bridge <team-id>')
-      process.exitCode = 1
-      break
-    }
-    await cmdBridge(args[0])
     break
   case 'teams':
   case 'ls':
@@ -646,7 +380,6 @@ switch (cmd) {
     ${c.bWhite}steer${c.r} <id> <message>       Send steering message to team
     ${c.bWhite}team-say${c.r} <id> <from> <to> <message>
     ${c.bWhite}team-read${c.r} <id>              Read the team message feed
-    ${c.bWhite}bridge${c.r} <id>                 Deliver file messages to agents
     ${c.bWhite}status${c.r}                     Server health & overview
 
   ${c.bold}Examples:${c.r}

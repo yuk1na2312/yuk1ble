@@ -200,16 +200,6 @@ describe('startup gate auto-confirm', () => {
       appendMessage: vi.fn(),
       getMessages: vi.fn(() => []),
     }))
-    // Keep the collab bridge from actually forking a process during the test.
-    // Failing the spawn is the benign path: the service logs and continues.
-    vi.doMock('child_process', async importOriginal => {
-      const actual = await importOriginal<typeof import('child_process')>()
-      return {
-        ...actual,
-        default: actual,
-        spawn: vi.fn(() => { throw new Error('bridge spawn disabled in tests') }),
-      }
-    })
     vi.doMock('../lib/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(async () => ({ id: 'agent-id' })),
       killLocalAgent: vi.fn(),
@@ -225,10 +215,6 @@ describe('startup gate auto-confirm', () => {
       collabMessagesFile: vi.fn((t: string) => path.join(tempRoot, `${t}.messages.jsonl`)),
       collabRuntimeDir: vi.fn((t: string) => path.join(tempRoot, t)),
       collabFinishedMarker: vi.fn((t: string) => path.join(tempRoot, `${t}.finished`)),
-      collabBridgePosted: vi.fn((t: string) => path.join(tempRoot, `${t}.posted`)),
-      collabBridgeResult: vi.fn((t: string) => path.join(tempRoot, `${t}.result`)),
-      collabBridgeLog: vi.fn((t: string) => path.join(tempRoot, `${t}.bridge.log`)),
-      collabBridgePid: vi.fn((t: string) => path.join(tempRoot, `${t}.bridge.pid`)),
     }))
 
     const mod = await import('../services/ensemble-service')

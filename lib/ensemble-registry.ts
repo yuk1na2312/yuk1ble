@@ -21,8 +21,6 @@ import { bus } from './bus'
 
 const ENSEMBLE_DIR = getEnsembleRegistryDir()
 const TEAMS_FILE = path.join(ENSEMBLE_DIR, 'teams.json')
-const LOCK_STALE_MS = 10_000
-const LOCK_TIMEOUT_MS = 5_000
 
 const TEAMS_WRITE_DEBOUNCE_MS = 100
 /** Messages kept in memory per team; older ones stay in the feed file. */
@@ -52,46 +50,6 @@ function getCreatedBy(): string {
 
 function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-}
-
-// ─── Cross-process file lock (still used by the CLI until team-say goes over HTTP) ──
-
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
-}
-
-export function acquireFileLock(filePath: string): () => void {
-  const lockDir = `${filePath}.lock`
-  ensureDir(path.dirname(filePath))
-  const startedAt = Date.now()
-
-  for (;;) {
-    try {
-      fs.mkdirSync(lockDir)
-      return () => {
-        try {
-          fs.rmSync(lockDir, { recursive: true, force: true })
-        } catch { /* best effort */ }
-      }
-    } catch (error) {
-      const err = error as NodeJS.ErrnoException
-      if (err.code !== 'EEXIST') throw error
-
-      try {
-        const stat = fs.statSync(lockDir)
-        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-          fs.rmSync(lockDir, { recursive: true, force: true })
-          continue
-        }
-      } catch { /* lock changed while checking; retry */ }
-
-      if (Date.now() - startedAt >= LOCK_TIMEOUT_MS) {
-        throw new Error(`Timed out acquiring lock for ${filePath} after ${LOCK_TIMEOUT_MS}ms`)
-      }
-
-      sleepSync(50)
-    }
-  }
 }
 
 // ─── Teams ──────────────────────────────────────────────────────────────────

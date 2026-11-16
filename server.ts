@@ -23,6 +23,11 @@ const UI_FILE = path.join(__dirname, 'public', 'index.html')
 
 const PORT = parseInt(process.env.ENSEMBLE_PORT || '23000', 10)
 const HOST = process.env.ENSEMBLE_HOST || '127.0.0.1'
+
+// Agent terminals inherit this environment and their `team-say` posts back to this
+// server, so a server on a non-default port or host must tell its own agents where it is.
+const clientHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST
+process.env.ENSEMBLE_URL ??= `http://${clientHost}:${PORT}`
 const DEFAULT_CORS_ORIGIN_PATTERNS = [
   /^http:\/\/localhost(?::\d+)?$/i,
   /^http:\/\/127\.0\.0\.1(?::\d+)?$/i,

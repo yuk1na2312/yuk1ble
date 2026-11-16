@@ -1,11 +1,9 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { execFileSync } from 'child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { EnsembleMessage, EnsembleTeam, StagedWorkflowConfig } from '../types/ensemble'
 
-const ENSEMBLE_CLI = path.resolve(process.cwd(), 'cli/ensemble.ts')
 const TMP_ENSEMBLE_DIR = path.join(os.tmpdir(), 'ensemble')
 let sigintListeners = process.listeners('SIGINT')
 let sigtermListeners = process.listeners('SIGTERM')
@@ -33,14 +31,6 @@ afterEach(() => {
     if (!exitListeners.includes(listener)) process.removeListener('exit', listener)
   }
 })
-
-function teamSay(teamId: string, from: string, to: string, content: string): string {
-  return execFileSync(
-    process.execPath,
-    ['--import', 'tsx', ENSEMBLE_CLI, 'team-say', teamId, from, to, content],
-    { encoding: 'utf-8' },
-  ).trim()
-}
 
 function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage {
   return {
@@ -474,95 +464,6 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
 })
 
 // ─────────────────────────────────────────────────────
-// 4. team-say — output format validation
-// ─────────────────────────────────────────────────────
-describe('team-say — output format', () => {
-  let testTeamId: string
-  let outputFile: string
-
-  beforeEach(() => {
-    testTeamId = `team-say-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-    outputFile = path.join(TMP_ENSEMBLE_DIR, testTeamId, 'messages.jsonl')
-    fs.mkdirSync(path.dirname(outputFile), { recursive: true })
-  })
-
-  afterEach(() => {
-    if (fs.existsSync(outputFile)) fs.rmSync(outputFile, { force: true })
-  })
-
-  it('prints "Sent to <recipient>" on stdout', () => {
-    const stdout = teamSay(testTeamId, 'codex-1', 'claude-2', 'test message')
-    expect(stdout).toBe('Sent to claude-2')
-  })
-
-  it('writes valid JSONL to the Windows runtime directory', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'hello')
-    expect(fs.existsSync(outputFile)).toBe(true)
-
-    const line = fs.readFileSync(outputFile, 'utf-8').trim()
-    expect(() => JSON.parse(line)).not.toThrow()
-  })
-
-  it('message contains all required EnsembleMessage fields', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'field check')
-    const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
-
-    expect(msg).toMatchObject({
-      teamId: testTeamId,
-      from: 'codex-1',
-      to: 'claude-2',
-      content: 'field check',
-      type: 'chat',
-    })
-    expect(msg.id).toEqual(expect.any(String))
-    expect(msg.timestamp).toEqual(expect.any(String))
-  })
-
-  it('id is a valid UUID v4', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'uuid test')
-    const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
-    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-    expect(msg.id).toMatch(uuidV4Regex)
-  })
-
-  it('timestamp is a valid, recent ISO 8601 string', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'ts test')
-    const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
-    const parsed = new Date(msg.timestamp)
-    expect(Number.isNaN(parsed.getTime())).toBe(false)
-    expect(Date.now() - parsed.getTime()).toBeLessThan(10_000)
-  })
-
-  it('preserves multi-word content', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'bericht met spaties')
-    const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
-    expect(msg.content).toBe('bericht met spaties')
-  })
-
-  it('handles special characters in message', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'Hello "world" & <test>')
-    const msg = JSON.parse(fs.readFileSync(outputFile, 'utf-8').trim())
-    expect(msg.content).toContain('"world"')
-    expect(msg.content).toContain('&')
-    expect(msg.content).toContain('<test>')
-  })
-
-  it('appends multiple messages with unique ids', () => {
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'First')
-    teamSay(testTeamId, 'codex-1', 'claude-2', 'Second')
-
-    const lines = fs.readFileSync(outputFile, 'utf-8').trim().split('\n')
-    expect(lines).toHaveLength(2)
-
-    const msg1 = JSON.parse(lines[0])
-    const msg2 = JSON.parse(lines[1])
-    expect(msg1.content).toBe('First')
-    expect(msg2.content).toBe('Second')
-    expect(msg1.id).not.toBe(msg2.id)
-  })
-})
-
-// ─────────────────────────────────────────────────────
 // 5. Collab templates — loading & prompt generation
 // ─────────────────────────────────────────────────────
 describe('collab templates', () => {
@@ -683,8 +584,6 @@ describe('worktree isolation lifecycle', () => {
       collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
       collabRuntimeDir: vi.fn((teamId: string) => path.join(tempRoot, teamId)),
       collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),
-      collabBridgePosted: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.posted`)),
-      collabBridgeResult: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.result`)),
     }))
 
     const mod = await import('../services/ensemble-service')
@@ -860,8 +759,6 @@ describe('staged workflow integration', () => {
       collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
       collabRuntimeDir: vi.fn((teamId: string) => path.join(tempRoot, teamId)),
       collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),
-      collabBridgePosted: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.posted`)),
-      collabBridgeResult: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.result`)),
     }))
     vi.doMock('../lib/worktree-manager', () => ({
       createWorktree: vi.fn(),
