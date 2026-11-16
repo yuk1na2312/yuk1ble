@@ -16,6 +16,7 @@ import { PtyRuntime } from './lib/pty-runtime'
 import { installLogCapture, getLogEntries } from './lib/log-buffer'
 import { disbandLiveTeamsOnBoot } from './lib/ensemble-registry'
 import { loadAgentsConfig } from './lib/agent-config'
+import { describePrograms } from './lib/programs'
 
 installLogCapture()
 
@@ -112,6 +113,11 @@ const server = http.createServer(async (req, res) => {
     // Health check
     if (path === '/api/v1/health') {
       return json(res, { status: 'healthy', version: '1.0.0' }, 200, origin)
+    }
+
+    // Programs: the adapter catalog the GUI and CLI build their pickers from
+    if (path === '/api/ensemble/programs' && method === 'GET') {
+      return json(res, describePrograms(), 200, origin)
     }
 
     // List teams / Create team

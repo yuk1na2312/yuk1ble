@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from 'fs'
-import { basename, delimiter, join } from 'path'
+import { basename, join } from 'path'
 import headless from '@xterm/headless'
 import type { Terminal as HeadlessTerminal } from '@xterm/headless'
 import * as pty from 'node-pty'
 import type { AgentRuntime, DiscoveredSession } from './agent-runtime'
-import { killProcessTree, killProcessTreeSync, quotePowerShell } from './win-process'
+import { findOnPath, killProcessTree, killProcessTreeSync, quotePowerShell } from './win-process'
 import { listAgentPrograms } from './agent-config'
 
 const { Terminal } = headless
@@ -46,32 +46,6 @@ const KEYMAP: Record<string, string> = {
   Down: '\x1b[B',
   Right: '\x1b[C',
   Left: '\x1b[D',
-}
-
-function executableNames(command: string): string[] {
-  if (/\.[^\\/]+$/.test(command)) return [command]
-
-  const extensions = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
-    .split(';')
-    .filter(Boolean)
-  return [command, ...extensions.map(extension => `${command}${extension.toLowerCase()}`)]
-}
-
-function findOnPath(command: string): string | undefined {
-  const pathValue = process.env.PATH || process.env.Path
-  if (!pathValue) return undefined
-
-  const names = executableNames(command)
-  for (const directory of pathValue
-    .split(delimiter)
-    .filter(Boolean)
-    .map(directory => directory.replace(/^"|"$/g, ''))) {
-    for (const name of names) {
-      const candidate = join(directory, name)
-      if (existsSync(candidate)) return candidate
-    }
-  }
-  return undefined
 }
 
 function pickShell(): string {

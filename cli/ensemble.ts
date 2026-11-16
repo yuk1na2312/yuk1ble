@@ -54,6 +54,23 @@ function apiGet<T>(urlPath: string): Promise<T> {
   })
 }
 
+interface ProgramInfo { name: string; color: string; installed: boolean }
+
+/** The server's program catalog; empty when it cannot be read. */
+async function fetchPrograms(): Promise<ProgramInfo[]> {
+  try {
+    return await apiGet<ProgramInfo[]>('/api/ensemble/programs')
+  } catch {
+    return []
+  }
+}
+
+/** "#rrggbb" as a 24-bit ANSI foreground. */
+function hexToAnsi(hex: string): string {
+  const n = parseInt(hex.slice(1), 16)
+  return `\x1b[38;2;${(n >> 16) & 255};${(n >> 8) & 255};${n & 255}m`
+}
+
 function apiPost(urlPath: string, body: unknown): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body)
@@ -158,6 +175,7 @@ interface TeamListItem {
 async function cmdTeams() {
   try {
     const data = await apiGet<{ teams: TeamListItem[] }>('/api/ensemble/teams')
+    const programs = await fetchPrograms()
 
     if (data.teams.length === 0) {
       console.log(`\n  ${c.yellow}No teams found.${c.r}\n`)
@@ -174,7 +192,9 @@ async function cmdTeams() {
         : `${c.yellow}◌`
 
       const agents = t.agents.map(a => {
-        const col = a.program.toLowerCase().includes('codex') ? c.bBlue : c.bGreen
+        // Cosmetic only: the leading word of the program string picks its colour.
+        const program = programs.find(p => a.program.toLowerCase().startsWith(p.name))
+        const col = program ? hexToAnsi(program.color) : c.bGreen
         return `${col}${a.name}${c.r}`
       }).join(' + ')
 
@@ -232,10 +252,17 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     }
   }
 
-  // 2. Parse agents (default: codex + claude)
-  const agentNames = agentFlags
-    ? agentFlags.split(',').map(s => s.trim())
-    : ['codex', 'claude code']
+  // 2. Parse agents. Default: the first two installed programs, in agents.json order.
+  let agentNames: string[]
+  if (agentFlags) {
+    agentNames = agentFlags.split(',').map(s => s.trim()).filter(Boolean)
+  } else {
+    agentNames = (await fetchPrograms()).filter(p => p.installed).slice(0, 2).map(p => p.name)
+    if (agentNames.length < 2) {
+      console.error(`  ${c.red}Fewer than two agent CLIs found on PATH.${c.r} Install one more or pass --agents <program>,<program> (see GET /api/ensemble/programs).`)
+      process.exit(1)
+    }
+  }
   // `program` or `program:model`; the model is checked by the server against that program's catalog.
   const agents = agentNames.map((spec, i) => {
     const colon = spec.indexOf(':')
@@ -342,7 +369,7 @@ switch (cmd) {
     }
     const taskDesc = runArgs.join(' ')
     if (!taskDesc) {
-      console.log(`Usage: ensemble run "task description" [--agents codex,claude] [--timeout 600]`)
+      console.log(`Usage: ensemble run "task description" [--agents <program>[:<model>],...] [--timeout 600]`)
       process.exit(1)
     }
     await cmdRun(taskDesc, agentList, timeout)
@@ -389,7 +416,7 @@ switch (cmd) {
     ${c.bWhite}status${c.r}                     Server health & overview
 
   ${c.bold}Examples:${c.r}
-    ${c.dim}ensemble run "refactor auth module" --agents gemini,claude${c.r}
+    ${c.dim}ensemble run "refactor auth module" --agents <program>:<model>,<program>${c.r}
     ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
     ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
     ${c.dim}ensemble teams${c.r}
