@@ -137,7 +137,7 @@
     </h2>
     <form id="newTeam" hidden>
       <textarea id="ntTask" rows="4" placeholder="Task for the team…"></textarea>
-      <input id="ntAgents" value="codex, claude code" title="Comma-separated. The first is the lead.">
+      <input id="ntAgents" placeholder="program[:model], program[:model], …" title="Comma-separated, 2 to 8. The first is the lead. A model after a colon must be one the program lists.">
       <input id="ntCwd" placeholder="working directory (blank = server cwd)">
       <div class="row">
         <button type="submit" id="ntGo">launch</button>
@@ -173,7 +173,7 @@
 
 <script>
 const $ = id => document.getElementById(id)
-const state = { teams: [], selected: null, logSeq: 0, paneEls: new Map() }
+const state = { teams: [], selected: null, logSeq: 0, paneEls: new Map(), programs: [] }
 
 // Escapes for attribute context too, not just text: agent/program names come from the
 // free-text "new team" form, and land in data-id="", class="" and <option value="">.
@@ -234,8 +234,8 @@ $('newTeam').onsubmit = e => {
   const task = $('ntTask').value.trim()
   if (!task) return
 
-  const programs = $('ntAgents').value.split(',').map(s => s.trim()).filter(Boolean)
-  if (programs.length < 2) {
+  const specs = $('ntAgents').value.split(',').map(s => s.trim()).filter(Boolean)
+  if (specs.length < 2) {
     setNtStatus('Need at least 2 agents — they have to talk to each other.', 'err')
     return
   }
@@ -243,10 +243,16 @@ $('newTeam').onsubmit = e => {
   const body = {
     name: `run-${Date.now()}`,
     description: task,
-    agents: programs.map((program, i) => ({
-      program,
-      role: i === 0 ? 'lead' : 'worker',
-    })),
+    agents: specs.map((spec, i) => {
+      // "program" or "program:model"; the server checks the model against that program's catalog.
+      const colon = spec.indexOf(':')
+      const model = colon < 0 ? '' : spec.slice(colon + 1).trim()
+      return {
+        program: colon < 0 ? spec : spec.slice(0, colon).trim(),
+        ...(model ? { model } : {}),
+        role: i === 0 ? 'lead' : 'worker',
+      }
+    }),
     feedMode: 'live',
   }
   const cwd = $('ntCwd').value.trim()
@@ -296,16 +302,35 @@ function select(id) {
 
 // ── speaker colors ──────────────────────────────────────────────────────────
 // One colour + icon per agent so a two-way transcript is readable at a glance.
-// Keyed by program (mirroring the colour/icon fields in agents.json) with a
-// per-position fallback, so two agents are never the same colour even when the
-// team runs two of the same program.
-const PROGRAM_STYLES = [
-  { match: 'codex', color: '#6aa9ff', icon: '◆' },
-  { match: 'claude', color: '#7ec98f', icon: '●' },
-  { match: 'aider', color: '#c99ae3', icon: '▲' },
-  { match: 'gemini', color: '#e3c07b', icon: '★' },
-  { match: 'opencode', color: '#6ed4d0', icon: '▣' },
-]
+// Colour and icon come from the program catalog (GET /api/ensemble/programs, loaded
+// once), with a per-position fallback, so two agents are never the same colour even
+// when the team runs two of the same program.
+function programFor(program) {
+  const p = String(program || '').toLowerCase()
+  return state.programs.find(s => p === s.name || p.startsWith(s.name))
+}
+
+function modelLabel(agent) {
+  const program = programFor(agent.program)
+  const model = program && program.models.find(m => m.id === agent.model)
+  return model ? model.label : agent.model
+}
+
+async function loadPrograms() {
+  try {
+    // color and icon are spliced into innerHTML/style below, so they are made safe once, here.
+    state.programs = (await api('/api/ensemble/programs')).map(p => ({
+      ...p,
+      color: /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : 'var(--dim)',
+      icon: esc(p.icon),
+    }))
+    const input = $('ntAgents')
+    if (!input.value) {
+      const names = state.programs.filter(p => p.installed).slice(0, 2).map(p => p.name)
+      input.value = names.join(', ')
+    }
+  } catch { /* the page works without colours */ }
+}
 const FALLBACK_STYLES = [
   { color: '#6aa9ff', icon: '◆' }, { color: '#7ec98f', icon: '●' },
   { color: '#c99ae3', icon: '▲' }, { color: '#e3c07b', icon: '★' },
@@ -320,8 +345,7 @@ function speakerStyle(who) {
   const agents = (currentTeam() || {}).agents || []
   const index = agents.findIndex(a => a.name === who)
   if (index < 0) return { color: 'var(--dim)', icon: '·' }
-  const program = String(agents[index].program || '').toLowerCase()
-  const byProgram = PROGRAM_STYLES.find(s => program.includes(s.match))
+  const byProgram = programFor(agents[index].program)
   // Two agents on the same program: keep the icon, take a distinct colour.
   const twin = agents.findIndex(a => a.program === agents[index].program) !== index
   if (byProgram && !twin) return byProgram
@@ -400,7 +424,7 @@ async function pollPanes() {
       wrap.innerHTML = `
         <div class="hd" style="box-shadow: inset 3px 0 0 ${style.color}">
           <strong style="color:${style.color}">${style.icon} ${esc(agent.name)}</strong>
-          <span style="color:var(--dim)">${esc(agent.program)} · ${esc(agent.role || '')}</span>
+          <span style="color:var(--dim)">${esc(agent.program)} · ${esc(agent.role || '')}${agent.model ? ' · ' + esc(modelLabel(agent)) : ''}</span>
           <span class="spacer"></span>
           <span class="live" style="color:var(--dim)">…</span>
         </div><pre></pre>`
@@ -463,7 +487,7 @@ async function tick() {
 }
 
 $('refresh').onclick = () => tick()
-tick()
+loadPrograms().then(tick)
 setInterval(() => { tick() }, 2000)
 </script>
 </body>

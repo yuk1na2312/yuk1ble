@@ -1,4 +1,5 @@
 import fs from 'fs'
+import vm from 'vm'
 import os from 'os'
 import path from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -33,6 +34,22 @@ describe('GET /api/ensemble/programs', () => {
     expect(programs).not.toContain('gates')
     const page = await fetch(`${server.baseUrl}/`)
     expect(page.headers.get('content-type')).toContain('text/html')
+  })
+})
+
+describe('the monitoring page', () => {
+  let server: Awaited<ReturnType<typeof bootServer>>
+  beforeAll(async () => { server = await bootServer() })
+  afterAll(() => { server.restore(); server.cleanup() })
+
+  it('takes colours and icons from the catalog instead of a table of its own, and its script parses', async () => {
+    const html = await (await fetch(`${server.baseUrl}/`)).text()
+    expect(html).toContain('/api/ensemble/programs')
+    expect(html).not.toContain('PROGRAM_STYLES')
+    expect(html).not.toMatch(/codex|claude|aider|gemini|opencode/i)
+
+    const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] ?? ''
+    expect(() => new vm.Script(script)).not.toThrow()
   })
 })
 
