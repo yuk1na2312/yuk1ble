@@ -18,16 +18,26 @@
     "postinstall": "node ./bin/postinstall.cjs"
   },
   "keywords": [
-    "ai", "agents", "multi-agent", "collaboration",
-    "claude", "codex", "windows", "cli"
+    "ai",
+    "agents",
+    "multi-agent",
+    "collaboration",
+    "claude",
+    "codex",
+    "windows",
+    "cli"
   ],
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
   },
-  "os": ["win32"],
+  "os": [
+    "win32"
+  ],
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
     "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
     "node-pty": "^1.1.0",
     "tsx": "^4.0.0"
   },

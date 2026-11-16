@@ -16,6 +16,7 @@ import { getLogEntries } from './log-buffer'
 import { describePrograms } from './programs'
 import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './http-guard'
 import { handleEvents, handleSessionStream } from './sse'
+import { serveStatic } from './http-static'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UI_FILE = path.join(__dirname, '..', 'public', 'index.html')
@@ -27,6 +28,8 @@ export interface RequestHandlerOptions {
   /** The address the server is bound to; its name is accepted in the Host header. */
   host: string
   port: number
+  /** Directory served at `/` (default: web/). Tests point it at a temp dir. */
+  webRoot?: string
 }
 
 const INPUT_ROUTE = /^\/api\/ensemble\/sessions\/([^/]+)\/(input|resize)$/
@@ -69,7 +72,7 @@ function resizeSession(sessionName: string, body: unknown): RouteResult {
   return onSession(sessionName, () => getRuntime().resize(sessionName, cols, rows)) ?? { data: { ok: true, cols, rows }, status: 200 }
 }
 
-export function createRequestHandler({ host, port }: RequestHandlerOptions): http.RequestListener {
+export function createRequestHandler({ host, port, webRoot }: RequestHandlerOptions): http.RequestListener {
   return async (req, res) => {
     const url = new URL(req.url || '/', `http://localhost:${port}`)
     const pathname = url.pathname
@@ -184,6 +187,9 @@ export function createRequestHandler({ host, port }: RequestHandlerOptions): htt
         }
         return
       }
+
+      // Last: anything that is not an API route may be a GUI file
+      if (await serveStatic(req, res, pathname, { webRoot })) return
 
       json({ error: 'Not found' }, 404)
     } catch (err) {
