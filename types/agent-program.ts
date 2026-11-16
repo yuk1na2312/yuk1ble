@@ -23,9 +23,9 @@ export interface AgentProgram {
   readyMarkers?: string[]
   /** How to deliver multi-line prompts */
   inputMethod: 'pasteFromFile' | 'sendKeys'
-  /** Base color name for monitor TUI (e.g. "blue", "green", "magenta", "yellow") */
+  /** Base color name (e.g. "blue", "green", "magenta", "yellow") */
   color: string
-  /** Single-char icon shown in monitor UI (e.g. "◆", "●", "▲", "★") */
+  /** Single-char icon shown in the GUI (e.g. "◆", "●", "▲", "★") */
   icon: string
 }
 

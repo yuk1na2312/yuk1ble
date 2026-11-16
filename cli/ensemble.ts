@@ -4,7 +4,6 @@
  *
  * Usage:
  *   ensemble run "task" [--agents x,y]      Run headless (no Claude Code needed)
- *   ensemble monitor [--latest | team-id]   Watch team collaboration live
  *   ensemble teams                          List all teams
  *   ensemble steer <team-id> <message>      Send a message to a team
  *   ensemble status                         Server health + active teams
@@ -12,7 +11,7 @@
 
 import http from 'http'
 import fs from 'fs'
-import { execFileSync, spawn } from 'child_process'
+import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import { v4 as uuidv4 } from 'uuid'
@@ -582,16 +581,6 @@ switch (cmd) {
     }
     await cmdBridge(args[0])
     break
-  case 'monitor':
-  case 'watch':
-  case 'mon': {
-    const monitorPath = path.join(ENSEMBLE_ROOT, 'cli', 'monitor.ts')
-    const monitorArgs = args.length ? args : ['--latest']
-    try {
-      execFileSync(findTsx(), [monitorPath, ...monitorArgs], { stdio: 'inherit', cwd: ENSEMBLE_ROOT })
-    } catch { /* exit handled by monitor */ }
-    break
-  }
   case 'teams':
   case 'ls':
     await cmdTeams()
@@ -654,7 +643,6 @@ switch (cmd) {
   ${c.bold}Commands:${c.r}
     ${c.bWhite}start${c.r}                      Start the ensemble server
     ${c.bWhite}run${c.r} "task" [--agents ..]   Run headless (auto-starts server)
-    ${c.bWhite}monitor${c.r} [--latest | id]   Watch team collaboration live
     ${c.bWhite}teams${c.r}                      List all teams
     ${c.bWhite}steer${c.r} <id> <message>       Send steering message to team
     ${c.bWhite}team-say${c.r} <id> <from> <to> <message>
@@ -662,17 +650,9 @@ switch (cmd) {
     ${c.bWhite}bridge${c.r} <id>                 Deliver file messages to agents
     ${c.bWhite}status${c.r}                     Server health & overview
 
-  ${c.bold}Monitor keybindings:${c.r}
-    ${c.bWhite}s${c.r}       Steer entire team
-    ${c.bWhite}1-4${c.r}     Steer specific agent
-    ${c.bWhite}j/k${c.r}     Scroll up/down
-    ${c.bWhite}d${c.r}       Disband team
-    ${c.bWhite}q${c.r}       Quit
-
   ${c.bold}Examples:${c.r}
     ${c.dim}ensemble run "refactor auth module" --agents gemini,claude${c.r}
     ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
-    ${c.dim}ensemble monitor --latest${c.r}
     ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
     ${c.dim}ensemble teams${c.r}
 `)

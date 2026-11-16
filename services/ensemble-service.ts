@@ -787,7 +787,7 @@ export async function createEnsembleTeam(
   if (activeAgents.length >= 2) {
     const runtime = getRuntime()
 
-    // A team can be disbanded (monitor 'd', API, auto-disband) while startup is
+    // A team can be disbanded (API, auto-disband) while startup is
     // still waiting on readiness. Without this, startup marches on and reports
     // confusing "PTY session not found" failures for sessions it killed itself.
     const teamWasDisbanded = (): boolean => {
@@ -1143,7 +1143,7 @@ export async function sendTeamMessage(
 /**
  * Write a summary file for a disbanded team — used by auto-disband and can be
  * picked up by the background watcher in the Claude Code session.
- * Mirrors the format from cli/monitor.ts disbandTeam().
+ * Writes the human-readable summary.txt for a disbanded team.
  */
 export async function writeDisbandSummary(teamId: string): Promise<void> {
   const team = getTeam(teamId)

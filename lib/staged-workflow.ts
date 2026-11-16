@@ -210,7 +210,7 @@ export class StagedWorkflowManager {
   }
 
   /**
-   * Fetch messages incrementally using a cursor (consistent with monitor.ts).
+   * Fetch messages incrementally using a cursor.
    * On first call for a phase, uses sinceTimestamp. Subsequent polls advance
    * the cursor to the latest message timestamp to avoid re-reading old data.
    */

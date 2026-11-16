@@ -1,6 +1,6 @@
 /**
  * Agent Config Loader — reads agents.json and provides lookup helpers.
- * Single source of truth for agent-specific behavior across spawner, ensemble, and monitor.
+ * Single source of truth for agent-specific behavior across spawner and ensemble.
  */
 
 import fs from 'fs'
