@@ -13,6 +13,11 @@
  *      pasting the task into a dialog is the failure this ordering prevents.
  *   4. a ready marker is on screen
  *   5. the screen has not changed for `quiescentMs` (an unrecognised prompt)
+ *
+ * When a pass finds nothing to act on it waits for the PTY to emit output
+ * (re-checking DATA_DEBOUNCE_MS after the first chunk of a burst) or for
+ * POLL_INTERVAL_MS to pass, whichever is first. The timer is what drives the
+ * quiescence clock and the timeout, and it keeps working if the output feed does not.
  */
 
 import type { AgentRuntime } from './agent-runtime'
@@ -23,10 +28,13 @@ import { matchReadyMarker, isQuiescentReady } from './pane-readiness'
 export const MAX_GATE_ATTEMPTS = 5
 /** The same gate is not answered again within this window: no key-repeat storms. */
 const GATE_DEBOUNCE_MS = 3000
+/** Longest wait between two passes. */
 const POLL_INTERVAL_MS = 1000
+/** A burst of PTY output triggers a pass this long after its first chunk. */
+export const DATA_DEBOUNCE_MS = 250
 
 export interface ReadinessOptions {
-  runtime: Pick<AgentRuntime, 'screen' | 'sendKeys' | 'exists'>
+  runtime: Pick<AgentRuntime, 'screen' | 'sendKeys' | 'exists' | 'onData'>
   sessionName: string
   readyMarkers: string[]
   gates: AgentGate[]
@@ -49,9 +57,54 @@ function gateKeys(gate: AgentGate, env: NodeJS.ProcessEnv): string[] {
 
 /** Resolves true once the agent is at its prompt (or looks settled), false on abort, exit or timeout. Never rejects on a screen error. */
 export async function waitForReady(options: ReadinessOptions): Promise<boolean> {
+  const { runtime, sessionName } = options
+  let wake: (() => void) | undefined
+  let burstTimer: ReturnType<typeof setTimeout> | undefined
+  let dataSeen = false
+
+  const scheduleBurst = (): void => {
+    burstTimer ??= setTimeout(() => wake?.(), DATA_DEBOUNCE_MS)
+  }
+  let unsubscribe = (): void => {}
+  try {
+    unsubscribe = runtime.onData(sessionName, () => {
+      dataSeen = true
+      if (wake) scheduleBurst()
+    })
+  } catch {
+    // No output feed (session already gone, listener cap): the poll timer alone drives the loop.
+  }
+
+  // Resolves on the next burst of output or after POLL_INTERVAL_MS. Output that arrived while a pass was running counts.
+  const nap = (): Promise<void> => new Promise<void>(resolve => {
+    let tick: ReturnType<typeof setTimeout> | undefined
+    const mine = (): void => {
+      if (wake !== mine) return // a stale timer from an earlier nap
+      wake = undefined
+      clearTimeout(burstTimer)
+      burstTimer = undefined
+      clearTimeout(tick)
+      dataSeen = false
+      resolve()
+    }
+    wake = mine
+    if (dataSeen) scheduleBurst()
+    if (options.sleep) void options.sleep(POLL_INTERVAL_MS).then(mine)
+    else tick = setTimeout(mine, POLL_INTERVAL_MS)
+  })
+
+  try {
+    return await pollUntilReady(options, nap)
+  } finally {
+    unsubscribe()
+    clearTimeout(burstTimer)
+    wake = undefined
+  }
+}
+
+async function pollUntilReady(options: ReadinessOptions, nap: () => Promise<void>): Promise<boolean> {
   const { runtime, sessionName, readyMarkers, isAborted, maxWaitMs, quiescentMs } = options
   const now = options.now ?? Date.now
-  const sleep = options.sleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)))
   const env = options.env ?? process.env
   const gates = options.gates.map(gate => ({ gate, pattern: new RegExp(gate.pattern, 'i') }))
 
@@ -106,7 +159,7 @@ export async function waitForReady(options: ReadinessOptions): Promise<boolean> 
             console.warn(`[Ensemble] ${gate.name} did not clear in ${sessionName}; ignoring it and checking readiness directly`)
           }
         }
-        await sleep(POLL_INTERVAL_MS)
+        await nap()
         continue
       }
       const marker = matchReadyMarker(output, readyMarkers)
@@ -138,7 +191,7 @@ export async function waitForReady(options: ReadinessOptions): Promise<boolean> 
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err)
     }
-    await sleep(POLL_INTERVAL_MS)
+    await nap()
   }
   console.error(
     `[Ensemble] ${sessionName} did not become ready within ${maxWaitMs / 1000}s`
