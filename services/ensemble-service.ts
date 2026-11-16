@@ -17,7 +17,7 @@ import {
 import { getRuntime } from '../lib/agent-runtime'
 import { getFeedFile } from '../lib/ensemble-paths'
 import { ensureSubmitted } from '../lib/paste-submit'
-import { resolveAgentProgram, resolveReadyMarkers } from '../lib/agent-config'
+import { resolveAgentProgram, resolveReadyMarkers, listProgramNames } from '../lib/agent-config'
 import { matchReadyMarker, isQuiescentReady } from '../lib/pane-readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
 import { bus } from '../lib/bus'
@@ -343,6 +343,11 @@ function validateCreateRequest(raw: unknown): string | undefined {
   for (const [i, agent] of body.agents.entries()) {
     if (typeof agent !== 'object' || agent === null || !isNonEmptyString((agent as { program?: unknown }).program)) {
       return `agents[${i}].program is required (non-empty string)`
+    }
+    // No fallback to a default CLI: an unknown name must stop here, before any record or PTY exists.
+    const program = (agent as { program: string }).program
+    if (!resolveAgentProgram(program)) {
+      return `unknown program "${program}"; available: ${listProgramNames().join(', ')}`
     }
   }
   if (body.workingDirectory !== undefined && typeof body.workingDirectory !== 'string') {
@@ -718,7 +723,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
           const promptFile = collabPromptFile(team.id, agent.name)
           try {
             const agentCfg = resolveAgentProgram(agent.program)
-            if (agentCfg.inputMethod === 'pasteFromFile') {
+            if (agentCfg?.inputMethod === 'pasteFromFile') {
               await runtime.pasteFromFile(sessionName, promptFile)
             } else {
               const prompt = fs.readFileSync(promptFile, 'utf-8')

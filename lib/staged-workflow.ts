@@ -183,7 +183,7 @@ export class StagedWorkflowManager {
     const runtime = getRuntime()
 
     const agentCfg = resolveAgentProgram(agent.program)
-    if (agentCfg.inputMethod === 'pasteFromFile') {
+    if (agentCfg?.inputMethod === 'pasteFromFile') {
       const tmpFile = collabDeliveryFile(this.options.team.id, sessionName)
       fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
       fs.writeFileSync(tmpFile, text)

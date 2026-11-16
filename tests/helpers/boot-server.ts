@@ -2,7 +2,11 @@ import fs from 'fs'
 import net from 'net'
 import os from 'os'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { vi } from 'vitest'
+
+/** Three fake-able programs (codex, claude, plain) whose ready marker is the stub screen ">". */
+export const FIXTURE_AGENTS_CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'agents.json')
 
 /**
  * Boots the real server.ts on an ephemeral port with a temp data dir, real store
@@ -37,6 +41,7 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
   process.env.ENSEMBLE_RUNTIME_DIR = path.join(tempRoot, 'runtime')
   process.env.ENSEMBLE_PORT = String(port)
   process.env.ENSEMBLE_URL = baseUrl
+  process.env.ENSEMBLE_AGENTS_CONFIG = FIXTURE_AGENTS_CONFIG
 
   const runtime = {
     capturePane: vi.fn(async (_session: string, _lines?: number) => '>'),
@@ -57,10 +62,6 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
   vi.doMock('../../lib/agent-runtime', () => ({
     getRuntime: vi.fn(() => runtime),
     setRuntime: vi.fn(),
-  }))
-  vi.doMock('../../lib/agent-config', () => ({
-    resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
-    resolveReadyMarkers: vi.fn(() => ['>']),
   }))
 
   await import('../../server')

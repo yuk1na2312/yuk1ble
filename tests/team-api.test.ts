@@ -38,6 +38,8 @@ describe('POST /api/ensemble/teams', () => {
     ['a blank program', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: '  ' }] }), 'agents[1].program'],
     ['a null agent', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, null] }), 'agents[1].program'],
     ['a numeric workingDirectory', JSON.stringify({ ...valid, workingDirectory: 42 }), 'workingDirectory'],
+    ['an unknown program', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'gpt' }] }), 'unknown program "gpt"; available: codex, claude, plain'],
+    ['a near-miss program name', JSON.stringify({ ...valid, agents: [{ program: 'claudex' }, { program: 'codex' }] }), 'unknown program "claudex"'],
   ])('%s', (_label, body, expected) => {
     it('is a 400 with a clear message, and creates nothing', async () => {
       const before = (await (await fetch(`${server.baseUrl}/api/ensemble/teams`)).json() as { teams: unknown[] }).teams.length
@@ -48,6 +50,8 @@ describe('POST /api/ensemble/teams', () => {
       expect((await res.json() as { error: string }).error).toContain(expected)
       const after = (await (await fetch(`${server.baseUrl}/api/ensemble/teams`)).json() as { teams: unknown[] }).teams.length
       expect(after).toBe(before)
+      // Nothing may have started: not a record, and not a process.
+      expect(server.spawnLocalAgent).not.toHaveBeenCalled()
     })
   })
 

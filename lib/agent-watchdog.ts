@@ -21,7 +21,7 @@ interface AgentWatchdogDeps {
   getMessages: (teamId: string) => EnsembleMessage[]
   appendMessage: (teamId: string, message: EnsembleMessage) => void
   getRuntime: () => Pick<AgentRuntime, 'sendKeys' | 'pasteFromFile' | 'sessionExists' | 'capturePane'>
-  resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys' }
+  resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys' } | undefined
   /** Records the stall where API consumers can see it. Optional for tests. */
   markAgentStalled?: (teamId: string, agentName: string, stalledAt: string) => void
   collabDeliveryFile: (teamId: string, sessionName: string) => string

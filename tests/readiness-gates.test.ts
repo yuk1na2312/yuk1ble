@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { resolveAgentProgram, resolveReadyMarkers, clearAgentsConfigCache } from '../lib/agent-config'
+import { resolveReadyMarkers, clearAgentsConfigCache } from '../lib/agent-config'
 import { matchReadyMarker, endsAtShellPrompt, isQuiescentReady } from '../lib/pane-readiness'
 import type { EnsembleTeam } from '../types/ensemble'
 
@@ -77,13 +77,11 @@ describe('codex readyMarker cannot collide with its startup gate', () => {
   afterEach(() => clearAgentsConfigCache())
 
   it('does not match the "Hooks need review" gate screen', () => {
-    const marker = resolveAgentProgram('codex').readyMarker
-    expect(CODEX_HOOKS_GATE_SCREEN).not.toContain(marker)
+    for (const marker of resolveReadyMarkers('codex')) expect(CODEX_HOOKS_GATE_SCREEN).not.toContain(marker)
   })
 
   it('does match the real Codex prompt screen', () => {
-    const marker = resolveAgentProgram('codex').readyMarker
-    expect(CODEX_READY_SCREEN).toContain(marker)
+    expect(resolveReadyMarkers('codex').some(marker => CODEX_READY_SCREEN.includes(marker))).toBe(true)
   })
 })
 

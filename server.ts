@@ -15,8 +15,19 @@ import { getRuntime, setRuntime } from './lib/agent-runtime'
 import { PtyRuntime } from './lib/pty-runtime'
 import { installLogCapture, getLogEntries } from './lib/log-buffer'
 import { disbandLiveTeamsOnBoot } from './lib/ensemble-registry'
+import { loadAgentsConfig } from './lib/agent-config'
 
 installLogCapture()
+
+// A bad ENSEMBLE_AGENTS_CONFIG must stop the server here, not at the first spawn.
+try {
+  const programs = Object.keys(loadAgentsConfig())
+  console.log(`[Ensemble] Agent programs: ${programs.join(', ')}`)
+} catch (err) {
+  console.error(`[Ensemble] ${err instanceof Error ? err.message : err}`)
+  process.exit(1)
+}
+
 setRuntime(new PtyRuntime())
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

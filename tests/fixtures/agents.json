@@ -1,0 +1,36 @@
+{
+  "codex": {
+    "command": "codex",
+    "flags": ["--dangerously-bypass-approvals-and-sandbox"],
+    "cwdFlag": "--cd",
+    "cwdFlagAliases": ["-C"],
+    "readyMarkers": [">"],
+    "inputMethod": "sendKeys",
+    "modelFlag": "--model",
+    "models": [{ "id": "gpt-5.6-sol", "label": "Sol" }],
+    "color": "#6aa9ff",
+    "icon": "◆"
+  },
+  "claude": {
+    "command": "claude",
+    "flags": ["--permission-mode", "auto"],
+    "addDirFlag": "--add-dir",
+    "readyMarkers": [">"],
+    "inputMethod": "sendKeys",
+    "modelFlag": "--model",
+    "models": [
+      { "id": "fable", "label": "Fable 5" },
+      { "id": "opus", "label": "Opus 5" },
+      { "id": "sonnet", "label": "Sonnet 5" }
+    ],
+    "color": "#7ec98f",
+    "icon": "●"
+  },
+  "plain": {
+    "command": "plain",
+    "readyMarkers": [">"],
+    "inputMethod": "sendKeys",
+    "color": "#c99ae3",
+    "icon": "▲"
+  }
+}

@@ -1,48 +1,42 @@
 {
   "codex": {
-    "name": "codex",
     "command": "codex",
     "flags": ["--dangerously-bypass-approvals-and-sandbox"],
-    "readyMarker": "OpenAI Codex",
+    "readyMarkers": ["OpenAI Codex"],
     "inputMethod": "pasteFromFile",
-    "color": "blue",
+    "color": "#6aa9ff",
     "icon": "◆"
   },
   "claude": {
-    "name": "claude",
     "command": "claude",
     "flags": ["--permission-mode", "auto"],
-    "readyMarker": "❯",
-    "readyMarkers": ["? for shortcuts"],
+    "readyMarkers": ["❯", "? for shortcuts"],
     "inputMethod": "sendKeys",
-    "color": "green",
+    "color": "#7ec98f",
     "icon": "●"
   },
   "aider": {
-    "name": "aider",
     "command": "aider",
     "flags": [],
-    "readyMarker": "❯",
+    "readyMarkers": ["❯"],
     "inputMethod": "sendKeys",
-    "color": "magenta",
+    "color": "#c99ae3",
     "icon": "▲"
   },
   "gemini": {
-    "name": "gemini",
     "command": "gemini",
     "flags": ["--yolo"],
-    "readyMarker": "Type your message",
+    "readyMarkers": ["Type your message"],
     "inputMethod": "pasteFromFile",
-    "color": "yellow",
+    "color": "#e3c07b",
     "icon": "★"
   },
   "opencode": {
-    "name": "opencode",
     "command": "opencode",
     "flags": [],
-    "readyMarker": "Ask anything",
+    "readyMarkers": ["Ask anything"],
     "inputMethod": "sendKeys",
-    "color": "cyan",
+    "color": "#6ed4d0",
     "icon": "▣"
   }
 }

@@ -5,6 +5,7 @@ import net from 'net'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { FIXTURE_AGENTS_CONFIG } from './helpers/boot-server'
 
 const execFileAsync = promisify(execFile)
 
@@ -66,6 +67,7 @@ describe('onboarding smoke test', () => {
     process.env.ENSEMBLE_DATA_DIR = tempRoot
     process.env.ENSEMBLE_PORT = String(port)
     process.env.ENSEMBLE_URL = baseUrl
+    process.env.ENSEMBLE_AGENTS_CONFIG = FIXTURE_AGENTS_CONFIG
 
     vi.resetModules()
     vi.doMock('../lib/agent-spawner', () => ({
@@ -82,10 +84,6 @@ describe('onboarding smoke test', () => {
     vi.doMock('../lib/agent-runtime', () => ({
       getRuntime: vi.fn(() => runtime),
       setRuntime: vi.fn(),
-    }))
-    vi.doMock('../lib/agent-config', () => ({
-      resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
-      resolveReadyMarkers: vi.fn(() => ['>']),
     }))
 
     await import('../server')
