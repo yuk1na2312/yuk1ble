@@ -15,12 +15,13 @@ import {
   getAgentTokenUsage,
 } from '../lib/agent-spawner'
 import { getRuntime } from '../lib/agent-runtime'
+import { getFeedFile } from '../lib/ensemble-paths'
 import { ensureSubmitted } from '../lib/paste-submit'
 import { resolveAgentProgram, resolveReadyMarkers } from '../lib/agent-config'
 import { matchReadyMarker, isQuiescentReady } from '../lib/pane-readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
 import {
-  collabPromptFile, collabDeliveryFile, collabSummaryFile, collabMessagesFile,
+  collabPromptFile, collabDeliveryFile, collabSummaryFile,
   collabRuntimeDir, collabFinishedMarker, collabBridgePosted,
   collabBridgeResult, collabBridgeLog, collabBridgePid,
   ensureCollabDirs, scrubCollabRuntimePaths,
@@ -1020,7 +1021,7 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
   }).join('\n\n')
 
   const summaryFile = collabSummaryFile(teamId)
-  const transcriptPointer = collabMessagesFile(teamId)
+  const transcriptPointer = getFeedFile(teamId)
   fs.mkdirSync(path.dirname(summaryFile), { recursive: true })
   fs.writeFileSync(
     summaryFile,

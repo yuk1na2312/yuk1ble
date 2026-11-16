@@ -47,6 +47,8 @@ export interface EnsembleMessage {
   type: 'chat' | 'decision' | 'question' | 'result'
   timestamp: string
   options?: string[]
+  /** Per-team monotonically increasing sequence number, assigned by the store on append. */
+  seq?: number
 }
 
 export interface CreateTeamRequest {

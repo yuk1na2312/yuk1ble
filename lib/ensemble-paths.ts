@@ -14,3 +14,8 @@ export function getEnsembleDataDir(): string {
 export function getEnsembleRegistryDir(): string {
   return path.join(getEnsembleDataDir(), 'ensemble')
 }
+
+/** Append-only message log of one team (the persistence side of the in-memory feed). */
+export function getFeedFile(teamId: string): string {
+  return path.join(getEnsembleRegistryDir(), 'messages', teamId, 'feed.jsonl')
+}
