@@ -21,7 +21,7 @@ interface AgentWatchdogDeps {
   getMessages: (teamId: string) => EnsembleMessage[]
   appendMessage: (teamId: string, message: EnsembleMessage) => void
   getRuntime: () => Pick<AgentRuntime, 'sendKeys' | 'pasteFromFile' | 'sessionExists' | 'capturePane'>
-  resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys' } | undefined
+  resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys'; pasteMarker?: string } | undefined
   /** Records the stall where API consumers can see it. Optional for tests. */
   markAgentStalled?: (teamId: string, agentName: string, stalledAt: string) => void
   collabDeliveryFile: (teamId: string, sessionName: string) => string
@@ -152,7 +152,7 @@ export class AgentWatchdog {
     }
   }
 
-  private async nudgeAgent(team: EnsembleTeam, agentName: string, _program: string): Promise<void> {
+  private async nudgeAgent(team: EnsembleTeam, agentName: string, program: string): Promise<void> {
     const sessionName = `${team.name}-${agentName}`
     // Always use pasteFromFile to avoid shell escaping issues with sendKeys
     const runtime = this.deps.getRuntime()
@@ -161,7 +161,7 @@ export class AgentWatchdog {
     fs.writeFileSync(filePath, WATCHDOG_NUDGE_TEXT)
     await runtime.pasteFromFile(sessionName, filePath)
     // A pasted nudge parks in the composer just like any other paste.
-    await ensureSubmitted(runtime, sessionName)
+    await ensureSubmitted(runtime, sessionName, this.deps.resolveAgentProgram(program)?.pasteMarker)
 
     // Only report the nudge as having happened once it actually succeeded —
     // appending this before the send (as before) left a false "nudged" message

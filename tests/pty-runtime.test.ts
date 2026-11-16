@@ -80,3 +80,33 @@ describe('PtyRuntime capturePane()', () => {
     expect(output).toContain('SPACE PRESERVED')
   })
 })
+
+describe('PtyRuntime environment', () => {
+  it('withholds what the adapters list in stripEnv and passes everything else', async () => {
+    const saved = { key: process.env.OPENAI_API_KEY, visible: process.env.ENSEMBLE_ENV_PROBE }
+    process.env.OPENAI_API_KEY = 'sk-secret-probe'
+    process.env.ENSEMBLE_ENV_PROBE = 'visible-probe'
+    try {
+      const sessionName = `env-strip-${process.pid}-${Date.now()}`
+      activeSessions.add(sessionName)
+      await runtime.createSession(sessionName, os.tmpdir())
+      await waitForCapture(sessionName, output => />\s*$/.test(output))
+
+      // The marker is assembled at runtime, so only output can contain it, never the echoed command.
+      await runtime.sendKeys(
+        sessionName,
+        "Write-Host ('ENV'+'PROBE['+$env:OPENAI_API_KEY+']['+$env:ENSEMBLE_ENV_PROBE+']')",
+        { literal: true, enter: true },
+      )
+      const output = await waitForCapture(sessionName, capture => /ENVPROBE\[.*\]\[.*\]/.test(capture))
+
+      expect(output).toContain('ENVPROBE[][visible-probe]')
+      expect(output).not.toContain('sk-secret-probe')
+    } finally {
+      for (const [key, value] of [['OPENAI_API_KEY', saved.key], ['ENSEMBLE_ENV_PROBE', saved.visible]] as const) {
+        if (value === undefined) delete process.env[key]
+        else process.env[key] = value
+      }
+    }
+  })
+})

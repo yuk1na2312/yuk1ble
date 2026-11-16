@@ -18,7 +18,7 @@ import { getRuntime } from '../lib/agent-runtime'
 import { getFeedFile } from '../lib/ensemble-paths'
 import { ensureSubmitted } from '../lib/paste-submit'
 import { resolveAgentProgram, resolveReadyMarkers, listProgramNames } from '../lib/agent-config'
-import { matchReadyMarker, isQuiescentReady } from '../lib/pane-readiness'
+import { waitForReady as waitForReadyScreen } from '../lib/readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
 import { bus } from '../lib/bus'
 import {
@@ -68,47 +68,6 @@ const MIN_MESSAGES_BEFORE_AUTO_DISBAND = 10
 // message count. Agents are instructed to use it in buildPromptPreview. It is
 // checked on the bus 'message' event, the moment the second one is appended.
 const EXPLICIT_DONE_SENTINEL = '<<COLLAB_DONE>>'
-
-// Interactive gates that block agent startup and need an automated response.
-// Debounced: same gate is not re-sent within 3 seconds to avoid key-repeat storms,
-// and abandoned after MAX_GATE_ATTEMPTS so a permanently-matching screen can never
-// starve the readiness check (a gate `continue`s past it).
-//
-// Codex's hook-review gate defaults to "continue without trusting" — ensemble spawns
-// agents unattended, so it must not silently authorize hook code the user has not
-// reviewed. Set ENSEMBLE_CODEX_TRUST_HOOKS=1 to answer "trust all" instead, or answer
-// the prompt once by hand in a normal `codex` session to stop it recurring.
-const MAX_GATE_ATTEMPTS = 5
-
-interface AutoConfirmGate {
-  name: string
-  pattern: RegExp
-  /** Keys sent in order when the gate is detected. */
-  respond: Array<{ keys: string; opts?: { literal?: boolean; enter?: boolean } }>
-}
-
-const AUTO_CONFIRM_GATES: AutoConfirmGate[] = [
-  {
-    name: 'trust prompt',
-    pattern: /Do you trust the contents of this directory\?|Quick safety check:|Yes, I trust this folder/i,
-    respond: [{ keys: 'Enter' }],
-  },
-  {
-    name: 'bypass permissions warning',
-    pattern: /WARNING: Claude Code running in Bypass Permissions mode/i,
-    respond: [{ keys: 'Down', opts: { enter: true } }],
-  },
-  {
-    // Codex >= 0.147: "Hooks need review / N hooks are new or changed".
-    // Its "›" selection cursor is why codex's readyMarker could never be "›".
-    name: 'codex hooks review',
-    pattern: /Hooks? needs? review|hooks? (?:are|is) new or changed/i,
-    respond: [{
-      keys: process.env.ENSEMBLE_CODEX_TRUST_HOOKS === '1' ? '2' : '3',
-      opts: { literal: true },
-    }],
-  },
-]
 
 class EnsembleService {
   private readonly disbandingTeams = new Set<string>()
@@ -516,98 +475,16 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
       }
     }
 
-    const waitForReady = async (
-      sessionName: string, program: string, maxWait = READY_TIMEOUT_MS,
-    ): Promise<boolean> => {
-      const start = Date.now()
-      const readyMarkers = resolveReadyMarkers(program)
-      const gateAttempts = new Map<string, number>()
-      let lastGateName = ''
-      let lastGateHandledAt = 0
-      let lastError = ''
-      let lastPane = ''
-      let lastPaneChangedAt = start
-      while (Date.now() - start < maxWait) {
-        if (teamWasDisbanded()) {
-          console.log(`[Ensemble] ${sessionName} readiness wait aborted — team ${team.id} was disbanded`)
-          return false
-        }
-        // A session that has exited is never going to become ready. Report that
-        // distinctly instead of burning the whole window and blaming a timeout.
-        // An unusable sessionExists is treated as "unknown" — keep waiting.
-        if (await sessionHasExited(sessionName)) {
-          console.error(`[Ensemble] ${sessionName} exited before becoming ready (${Math.round((Date.now() - start) / 1000)}s)`)
-          return false
-        }
-        try {
-          const output = await runtime.capturePane(sessionName, 50)
-          const gate = AUTO_CONFIRM_GATES.find(candidate =>
-            candidate.pattern.test(output) && (gateAttempts.get(candidate.name) ?? 0) < MAX_GATE_ATTEMPTS
-          )
-          if (gate) {
-            const now = Date.now()
-            if (gate.name !== lastGateName || now - lastGateHandledAt >= 3000) {
-              for (const key of gate.respond) {
-                await runtime.sendKeys(sessionName, key.keys, key.opts)
-              }
-              const attempts = (gateAttempts.get(gate.name) ?? 0) + 1
-              gateAttempts.set(gate.name, attempts)
-              lastGateName = gate.name
-              lastGateHandledAt = now
-              console.log(`[Ensemble] Auto-confirmed ${gate.name} in ${sessionName} (attempt ${attempts}/${MAX_GATE_ATTEMPTS})`)
-              if (attempts >= MAX_GATE_ATTEMPTS) {
-                console.warn(`[Ensemble] ${gate.name} did not clear in ${sessionName}; ignoring it and checking readiness directly`)
-              }
-            }
-            await new Promise(r => setTimeout(r, 1000))
-            continue
-          }
-          const marker = matchReadyMarker(output, readyMarkers)
-          if (marker) {
-            console.log(
-              `[Ensemble] ${sessionName} is ready (${Math.round((Date.now() - start) / 1000)}s,`
-              + ` matched ${JSON.stringify(marker)})`
-            )
-            return true
-          }
-
-          // Fallback: no marker matched, but the CLI has painted a screen that
-          // has since stopped changing. A working agent redraws constantly
-          // while it starts up (spinners, progress, hook output), so a screen
-          // that is byte-identical for QUIESCENT_READY_MS is an agent sitting
-          // at its prompt behind a marker we don't recognise. Without this a
-          // single UI tweak upstream costs the whole READY_TIMEOUT_MS window.
-          if (output !== lastPane) {
-            lastPane = output
-            lastPaneChangedAt = Date.now()
-          } else if (isQuiescentReady(output, Date.now() - lastPaneChangedAt, QUIESCENT_READY_MS)) {
-            console.warn(
-              `[Ensemble] ${sessionName} assumed ready (${Math.round((Date.now() - start) / 1000)}s):`
-              + ` no marker in ${JSON.stringify(readyMarkers)}, but the screen has been idle`
-              + ` for ${QUIESCENT_READY_MS / 1000}s`
-            )
-            return true
-          }
-        } catch (err) {
-          lastError = err instanceof Error ? err.message : String(err)
-        }
-        await new Promise(r => setTimeout(r, 1000))
-      }
-      console.error(
-        `[Ensemble] ${sessionName} did not become ready within ${maxWait / 1000}s`
-        + ` (looking for ${JSON.stringify(readyMarkers)})`
-        + (lastError ? ` — last error: ${lastError}` : '')
-      )
-      // Without this the timeout is undiagnosable after the fact: the session is
-      // killed on disband and its screen goes with it. Log what the agent was
-      // actually showing so the next occurrence explains itself.
-      const tail = lastPane.split('\n').map(line => line.trimEnd()).filter(line => line.trim()).slice(-12)
-      console.error(
-        `[Ensemble] ${sessionName} last screen (${tail.length} lines):\n`
-        + (tail.length ? tail.join('\n') : '(nothing — the session produced no output)')
-      )
-      return false
-    }
+    const waitForReady = (sessionName: string, program: string): Promise<boolean> => waitForReadyScreen({
+      runtime,
+      sessionName,
+      readyMarkers: resolveReadyMarkers(program),
+      gates: resolveAgentProgram(program)?.gates ?? [],
+      isAborted: teamWasDisbanded,
+      abortReason: `team ${team.id} was disbanded`,
+      maxWaitMs: READY_TIMEOUT_MS,
+      quiescentMs: QUIESCENT_READY_MS,
+    })
 
     console.log(`[Ensemble] Waiting for all ${activeAgents.length} agents to be ready...`)
     const readyResults = await Promise.all(
@@ -729,7 +606,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
               const prompt = fs.readFileSync(promptFile, 'utf-8')
               await runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
             }
-            await ensureSubmitted(runtime, sessionName)
+            await ensureSubmitted(runtime, sessionName, agentCfg?.pasteMarker)
             console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -837,7 +714,7 @@ export async function sendTeamMessage(
         fs.mkdirSync(path.dirname(tmpFile), { recursive: true })
         fs.writeFileSync(tmpFile, deliveryText)
         await runtime.pasteFromFile(sessionName, tmpFile)
-        await ensureSubmitted(runtime, sessionName)
+        await ensureSubmitted(runtime, sessionName, resolveAgentProgram(targetAgent.program)?.pasteMarker)
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
         appendMessage(teamId, {
@@ -879,7 +756,7 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
       .filter(a => a.status === 'active')
       .map(async (agent) => {
         const sessionName = `${team.name}-${agent.name}`
-        tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName)
+        tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName, agent.program)
       })
   )
 

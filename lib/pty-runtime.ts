@@ -5,6 +5,7 @@ import type { Terminal as HeadlessTerminal } from '@xterm/headless'
 import * as pty from 'node-pty'
 import type { AgentRuntime, DiscoveredSession } from './agent-runtime'
 import { killProcessTree, killProcessTreeSync, quotePowerShell } from './win-process'
+import { listAgentPrograms } from './agent-config'
 
 const { Terminal } = headless
 
@@ -21,13 +22,16 @@ interface PtySession {
 
 const MAX_SCROLLBACK = 200_000
 const sessions = new Map<string, PtySession>()
-const DENY = [
-  /^ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL)$/i,
-  /^OPENAI_(API_KEY|BASE_URL|ORGANIZATION)$/i,
-  /^(GEMINI|GOOGLE)_API_KEY$/i,
-  /^CLAUDE_CODE_/i, /^CLAUDECODE$/i, /^CLAUDE_(PID|EFFORT)$/i,
-  /^CLAUDE_CODE_USE_(BEDROCK|VERTEX)$/i,
-]
+
+/**
+ * Environment variables withheld from agent shells (provider credentials, and the
+ * session state of whichever agent is running ensemble). Each adapter lists its own
+ * in agents.json; the union applies to every shell because a session is created
+ * before its program is known.
+ */
+function deniedEnvPatterns(): RegExp[] {
+  return listAgentPrograms().flatMap(program => (program.stripEnv ?? []).map(source => new RegExp(source, 'i')))
+}
 
 const KEYMAP: Record<string, string> = {
   Enter: '\r',
@@ -169,8 +173,9 @@ export class PtyRuntime implements AgentRuntime {
       throw new Error(`PTY session already exists: ${name}`)
     }
 
+    const deny = deniedEnvPatterns()
     const env = Object.fromEntries(
-      Object.entries(process.env).filter(([k]) => !DENY.some(re => re.test(k)))
+      Object.entries(process.env).filter(([k]) => !deny.some(re => re.test(k)))
     ) as Record<string, string>
 
     const term = new Terminal({

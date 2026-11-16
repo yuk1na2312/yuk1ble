@@ -2,16 +2,61 @@
   "codex": {
     "command": "codex",
     "flags": ["--dangerously-bypass-approvals-and-sandbox"],
+    "cwdFlag": "--cd",
+    "cwdFlagAliases": ["-C"],
     "readyMarkers": ["OpenAI Codex"],
     "inputMethod": "pasteFromFile",
+    "gates": [
+      {
+        "name": "trust prompt",
+        "pattern": "Do you trust the contents of this directory\\?|Quick safety check:|Yes, I trust this folder",
+        "keys": ["Enter"]
+      },
+      {
+        "name": "codex hooks review",
+        "pattern": "Hooks? needs? review|hooks? (?:are|is) new or changed",
+        "keys": ["3"],
+        "literal": true,
+        "trustKeys": ["2"],
+        "trustEnv": "ENSEMBLE_CODEX_TRUST_HOOKS"
+      }
+    ],
+    "usagePatterns": [
+      { "pattern": "(\\d+)%\\s*left", "format": "$1% budget left" }
+    ],
+    "stripEnv": ["^OPENAI_(API_KEY|BASE_URL|ORGANIZATION)$"],
     "color": "#6aa9ff",
     "icon": "◆"
   },
   "claude": {
     "command": "claude",
     "flags": ["--permission-mode", "auto"],
+    "addDirFlag": "--add-dir",
     "readyMarkers": ["❯", "? for shortcuts"],
     "inputMethod": "sendKeys",
+    "gates": [
+      {
+        "name": "trust prompt",
+        "pattern": "Do you trust the contents of this directory\\?|Quick safety check:|Yes, I trust this folder",
+        "keys": ["Enter"]
+      },
+      {
+        "name": "bypass permissions warning",
+        "pattern": "WARNING: Claude Code running in Bypass Permissions mode",
+        "keys": ["Down"],
+        "enter": true
+      }
+    ],
+    "usagePatterns": [
+      { "pattern": "(\\d+(?:\\.\\d+)?k)\\s*tokens", "format": "~$1 tokens" },
+      { "pattern": "([\\d,]+)\\s*tokens", "format": "~$1 tokens" }
+    ],
+    "stripEnv": [
+      "^ANTHROPIC_(API_KEY|AUTH_TOKEN|BASE_URL)$",
+      "^CLAUDE_CODE_",
+      "^CLAUDECODE$",
+      "^CLAUDE_(PID|EFFORT)$"
+    ],
     "color": "#7ec98f",
     "icon": "●"
   },
@@ -28,6 +73,7 @@
     "flags": ["--yolo"],
     "readyMarkers": ["Type your message"],
     "inputMethod": "pasteFromFile",
+    "stripEnv": ["^(GEMINI|GOOGLE)_API_KEY$"],
     "color": "#e3c07b",
     "icon": "★"
   },

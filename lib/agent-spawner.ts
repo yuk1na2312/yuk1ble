@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { getRuntime } from './agent-runtime'
-import { buildAgentCommandParts } from './agent-config'
+import { buildAgentCommandParts, requireAgentProgram, resolveAgentProgram } from './agent-config'
 import { quotePowerShell } from './win-process'
 
 // Kept under its old name for existing callers and tests.
@@ -72,24 +72,26 @@ export function toPowerShellCommandLine(parts: string[]): string {
   return `& ${parts.map(quotePowerShell).join(' ')}`
 }
 
-/** Resolve program name to a PowerShell-runnable CLI command, adding runtime flags for cwd handling */
-export function resolveStartCommand(program: string, cwd: string): string {
-  const parts = buildAgentCommandParts(program)
-  const normalized = program.toLowerCase()
+/** True when the command line already has `flag`, as `flag value` or `flag=value`. */
+function hasFlag(parts: string[], flags: string[]): boolean {
+  return parts.some(part => flags.some(flag => part === flag || part.startsWith(`${flag}=`)))
+}
 
-  if (
-    normalized.includes('codex')
-    && !parts.some(p => p === '-C' || p === '--cd' || p.startsWith('--cd='))
-  ) {
-    parts.push('--cd', normalizeDirArg(cwd))
+/**
+ * Resolve a program name to a PowerShell-runnable CLI command. The adapter says
+ * which flags carry the working directory and the repo root; nothing here knows
+ * a program by name.
+ */
+export function resolveStartCommand(program: string, cwd: string): string {
+  const agent = requireAgentProgram(program)
+  const parts = buildAgentCommandParts(program)
+
+  if (agent.cwdFlag && !hasFlag(parts, [agent.cwdFlag, ...(agent.cwdFlagAliases ?? [])])) {
+    parts.push(agent.cwdFlag, normalizeDirArg(cwd))
   }
 
-  if (
-    normalized.includes('claude')
-    && cwd !== REPO_ROOT
-    && !parts.some(p => p === '--add-dir' || p.startsWith('--add-dir='))
-  ) {
-    parts.push('--add-dir', normalizeDirArg(REPO_ROOT))
+  if (agent.addDirFlag && cwd !== REPO_ROOT && !hasFlag(parts, [agent.addDirFlag])) {
+    parts.push(agent.addDirFlag, normalizeDirArg(REPO_ROOT))
   }
 
   return toPowerShellCommandLine(parts)
@@ -145,28 +147,20 @@ export async function killLocalAgent(sessionName: string): Promise<void> {
 }
 
 /**
- * Scrape token usage from an agent session's output.
- * Best-effort: returns 'unknown' if parsing fails.
- *
- * Claude Code patterns: "NNk tokens", "NN,NNN tokens", "NNN tokens"
- * Codex patterns: "NN% left", "NNk tokens"
+ * Scrape token usage from an agent session's output, using the adapter's
+ * usagePatterns (tried in order; the first match wins).
+ * Best-effort: returns 'unknown' if nothing matches or the session is gone.
  */
-export async function getAgentTokenUsage(sessionName: string): Promise<string> {
+export async function getAgentTokenUsage(sessionName: string, program: string): Promise<string> {
   try {
-    const runtime = getRuntime()
-    const output = await runtime.capturePane(sessionName, 100)
+    const patterns = resolveAgentProgram(program)?.usagePatterns ?? []
+    if (patterns.length === 0) return 'unknown'
+    const output = await getRuntime().capturePane(sessionName, 100)
 
-    // Claude Code: "123k tokens" or "12,345 tokens" or "1.2k tokens"
-    const claudeKMatch = output.match(/(\d+(?:\.\d+)?k)\s*tokens/i)
-    if (claudeKMatch) return `~${claudeKMatch[1]} tokens`
-
-    const claudeFullMatch = output.match(/([\d,]+)\s*tokens/i)
-    if (claudeFullMatch) return `~${claudeFullMatch[1]} tokens`
-
-    // Codex: "NN% left"
-    const codexPctMatch = output.match(/(\d+)%\s*left/i)
-    if (codexPctMatch) return `${codexPctMatch[1]}% budget left`
-
+    for (const { pattern, format } of patterns) {
+      const match = output.match(new RegExp(pattern, 'i'))
+      if (match) return format.replace(/\$1/g, () => match[1])
+    }
     return 'unknown'
   } catch {
     return 'unknown'
