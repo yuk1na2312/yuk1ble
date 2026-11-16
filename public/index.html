@@ -183,7 +183,11 @@ const timeOf = iso => { try { return new Date(iso).toLocaleTimeString() } catch 
 
 async function api(path, opts) {
   const res = await fetch(path, opts)
-  if (!res.ok) throw new Error(res.status + ' ' + path)
+  if (!res.ok) {
+    // Surface the server's own message (a 400 says what was wrong with the request).
+    const detail = await res.json().then(body => body && body.error, () => null)
+    throw new Error(detail || res.status + ' ' + path)
+  }
   return res.json()
 }
 
@@ -216,10 +220,9 @@ async function pollTeams() {
 function currentTeam() { return state.teams.find(t => t.id === state.selected) }
 
 // ── create a team ───────────────────────────────────────────────────────────
-// POST /api/ensemble/teams does not return until every agent is ready and
-// prompted, which can take minutes. So the request is deliberately NOT awaited
-// for UI purposes: the team record is written early, so normal polling shows it
-// within a couple of seconds. Errors still surface when the promise settles.
+// POST /api/ensemble/teams answers 202 as soon as the team record exists. The agents
+// are spawned, waited on (up to ~150s) and prompted in the background; that progress
+// shows up in the team's status and in the transcript, not in this request.
 $('toggleNew').onclick = () => {
   const form = $('newTeam')
   form.hidden = !form.hidden
@@ -250,23 +253,21 @@ $('newTeam').onsubmit = e => {
   if (cwd) body.workingDirectory = cwd
 
   $('ntGo').disabled = true
-  setNtStatus('launching — agents take up to ~150s to be ready…')
+  setNtStatus('creating…')
 
   api('/api/ensemble/teams', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   }).then(() => {
-    setNtStatus('team started', 'ok')
+    setNtStatus('team created — agents are starting, watch the transcript', 'ok')
     $('ntTask').value = ''
+    return pollTeams()
   }).catch(err => {
     setNtStatus('failed: ' + err.message, 'err')
   }).finally(() => {
     $('ntGo').disabled = false
   })
-
-  // Surface the team as soon as the record exists, without waiting on the POST.
-  setTimeout(() => pollTeams().catch(() => {}), 1500)
 }
 
 function setNtStatus(text, cls) {

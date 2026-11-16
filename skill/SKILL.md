@@ -57,6 +57,14 @@ $TEAM_ID = $result.team.id
 `program` must be a key in `agents.json`: `claude`, `codex`, `aider`, `gemini`, or
 `opencode`.
 
+The call answers **202** with the team record as soon as it exists — it does not wait for
+the agents. Spawning them, waiting for their CLIs to reach a prompt (up to
+`ENSEMBLE_READY_TIMEOUT_MS`, 150 s by default) and injecting the task continue in the
+background and report through the team status and the feed (`ensemble` messages such as
+"has joined", "collaboration started" or "Team start aborted"). A malformed request
+(fewer than 2 agents, a missing `program`, no name or description) is a **400** with the
+reason in `error`.
+
 ### Step 2: Confirm the message bridge is running
 
 `createEnsembleTeam` spawns the bridge for you, detached, as soon as the team goes

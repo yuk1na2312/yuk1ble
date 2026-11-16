@@ -32,6 +32,16 @@ afterEach(() => {
   }
 })
 
+type EnsembleService = typeof import('../services/ensemble-service')
+
+/** createEnsembleTeam answers 202 at once; startup then runs on, and `completion` is its end. */
+async function createAndWait(mod: EnsembleService, request: unknown) {
+  const result = await mod.createEnsembleTeam(request)
+  expect(result.status).toBe(202)
+  await result.completion
+  return result
+}
+
 function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage {
   return {
     id: overrides.id ?? `msg-${Math.random().toString(36).slice(2, 8)}`,
@@ -605,7 +615,7 @@ describe('worktree isolation lifecycle', () => {
     }
   }
 
-  it('spawns local agents inside their worktree when useWorktrees=true', async () => {
+  it('spawns local agents inside their worktree when useWorktrees=true', { timeout: 20_000 }, async () => {
     const team = makeTeam({
       id: 'team-worktree-create',
       name: 'team-worktree-create',
@@ -618,14 +628,22 @@ describe('worktree isolation lifecycle', () => {
           hostId: '',
           status: 'spawning',
         },
+        {
+          agentId: '',
+          name: 'claude-2',
+          program: 'claude',
+          role: 'member',
+          hostId: '',
+          status: 'spawning',
+        },
       ],
     })
     const { mod, mocks } = await setupWorktreeService(team)
 
-    await mod.createEnsembleTeam({
+    await createAndWait(mod, {
       name: team.name,
       description: team.description,
-      agents: [{ program: 'codex' }],
+      agents: [{ program: 'codex' }, { program: 'claude' }],
       workingDirectory: '/repo',
       useWorktrees: true,
     })
@@ -636,7 +654,7 @@ describe('worktree isolation lifecycle', () => {
     }))
   })
 
-  it('does not create worktrees when useWorktrees=false', async () => {
+  it('does not create worktrees when useWorktrees=false', { timeout: 20_000 }, async () => {
     const team = makeTeam({
       id: 'team-worktree-disabled',
       name: 'team-worktree-disabled',
@@ -649,14 +667,22 @@ describe('worktree isolation lifecycle', () => {
           hostId: '',
           status: 'spawning',
         },
+        {
+          agentId: '',
+          name: 'claude-2',
+          program: 'claude',
+          role: 'member',
+          hostId: '',
+          status: 'spawning',
+        },
       ],
     })
     const { mod, mocks } = await setupWorktreeService(team)
 
-    await mod.createEnsembleTeam({
+    await createAndWait(mod, {
       name: team.name,
       description: team.description,
-      agents: [{ program: 'codex' }],
+      agents: [{ program: 'codex' }, { program: 'claude' }],
       workingDirectory: '/repo',
       useWorktrees: false,
     })
@@ -786,7 +812,7 @@ describe('staged workflow integration', () => {
     const { mod, runtime, runStagedWorkflow } = await setupStagedService(team)
     const stagedConfig: StagedWorkflowConfig = { planTimeoutMs: 1500 }
 
-    await mod.createEnsembleTeam({
+    await createAndWait(mod, {
       name: team.name,
       description: team.description,
       agents: [{ program: 'codex' }, { program: 'claude' }],
@@ -820,7 +846,7 @@ describe('staged workflow integration', () => {
     })
     const { mod, runtime, runStagedWorkflow } = await setupStagedService(team)
 
-    await mod.createEnsembleTeam({
+    await createAndWait(mod, {
       name: team.name,
       description: team.description,
       agents: [{ program: 'codex' }, { program: 'claude' }],

@@ -64,6 +64,14 @@ const POWERSHELL_PROMPT_SCREEN = [
   'PS E:\\projects\\ensemble-win\\ensemble>',
 ].join('\n')
 
+/** createEnsembleTeam answers 202 at once; startup then runs on, and `completion` is its end. */
+async function createAndWait(mod: typeof import('../services/ensemble-service'), request: unknown) {
+  const result = await mod.createEnsembleTeam(request)
+  expect(result.status).toBe(202)
+  await result.completion
+  return result
+}
+
 describe('codex readyMarker cannot collide with its startup gate', () => {
   beforeEach(() => clearAgentsConfigCache())
   afterEach(() => clearAgentsConfigCache())
@@ -224,7 +232,7 @@ describe('startup gate auto-confirm', () => {
   it('answers the Codex hooks gate and only injects once the real prompt is up', async () => {
     const { mod, sendKeysCalls, pasteCalls } = await setup()
 
-    await mod.createEnsembleTeam({
+    await createAndWait(mod, {
       name: 'team-gate',
       description: 'gate test',
       agents: [{ program: 'codex' }, { program: 'codex' }],
@@ -257,7 +265,7 @@ describe('startup gate auto-confirm', () => {
       'claude', CLAUDE_TRUST_SCREEN, CLAUDE_READY_SCREEN,
     )
 
-    await mod.createEnsembleTeam({
+    await createAndWait(mod, {
       name: 'team-gate',
       description: 'gate test',
       agents: [{ program: 'claude' }, { program: 'claude' }],

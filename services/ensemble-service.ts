@@ -318,12 +318,89 @@ export function buildPromptPreview(params: {
   ].join(' ')
 }
 
-export async function createEnsembleTeam(
-  request: CreateTeamRequest
-): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+export interface CreateTeamResult extends ServiceResult<{ team: EnsembleTeam }> {
+  /**
+   * Settles when background startup (worktrees, spawn, readiness, prompt
+   * injection) is over. Never rejects: a failure is logged and written to the
+   * feed. The HTTP route ignores it; tests await it.
+   */
+  completion?: Promise<void>
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+/** Trust boundary for POST /teams: a malformed body must be a 400, never a thrown 500. */
+function validateCreateRequest(raw: unknown): string | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'Request body must be a JSON object'
+  const body = raw as Record<string, unknown>
+  if (!isNonEmptyString(body.name)) return 'name is required (non-empty string)'
+  if (!isNonEmptyString(body.description)) return 'description is required (non-empty string)'
+  if (!Array.isArray(body.agents) || body.agents.length < 2) {
+    return 'agents must be an array of at least 2 entries — agents collaborate by messaging each other'
+  }
+  for (const [i, agent] of body.agents.entries()) {
+    if (typeof agent !== 'object' || agent === null || !isNonEmptyString((agent as { program?: unknown }).program)) {
+      return `agents[${i}].program is required (non-empty string)`
+    }
+  }
+  if (body.workingDirectory !== undefined && typeof body.workingDirectory !== 'string') {
+    return 'workingDirectory must be a string'
+  }
+  return undefined
+}
+
+/**
+ * Validate, record the team and answer at once with 202. Spawning the agents,
+ * waiting for their CLIs to reach a prompt (up to ENSEMBLE_READY_TIMEOUT_MS) and
+ * injecting the task continue in the background, reporting through the team's
+ * status and its feed.
+ */
+export async function createEnsembleTeam(raw: unknown): Promise<CreateTeamResult> {
+  const invalid = validateCreateRequest(raw)
+  if (invalid) return { error: `Bad Request: ${invalid}`, status: 400 }
+
+  const request = raw as CreateTeamRequest
   const team = createTeam(request)
+  const snapshot = structuredClone(team) // startup mutates `team` as it goes
+
+  const completion = startTeam(team, request).catch(async (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error(`[Ensemble] Team startup failed for ${team.id}:`, err)
+    try {
+      appendMessage(team.id, {
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
+        content: `❌ Team startup failed: ${message}`,
+        type: 'chat', timestamp: new Date().toISOString(),
+      })
+      // Sessions may already be running; leaving them would orphan the processes.
+      await disbandTeam(team.id)
+    } catch (cleanupErr) {
+      console.error(`[Ensemble] Cleanup after failed startup of ${team.id} failed:`, cleanupErr)
+    }
+  })
+
+  return { data: { team: snapshot }, status: 202, completion }
+}
+
+async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promise<void> {
   const cwd = request.workingDirectory || process.cwd()
   const worktreeMap = new Map<string, WorktreeInfo>()
+
+  // A team can be disbanded (API, auto-disband) while startup is still spawning or
+  // waiting on readiness. Without this check startup marches on, spawns sessions
+  // nobody will ever kill and reports "PTY session not found" for ones it killed itself.
+  const teamWasDisbanded = (): boolean => {
+    const current = getTeam(team.id)
+    return !current || current.status === 'disbanded'
+  }
+
+  // Publish progress without resurrecting a team disbanded while startup was running.
+  const persist = (updates: Partial<EnsembleTeam>): void => {
+    const current = getTeam(team.id)
+    if (current && current.status !== 'disbanded') updateTeam(team.id, updates)
+  }
 
   // Phase 0: Create worktrees if requested
   if (request.useWorktrees) {
@@ -349,6 +426,8 @@ export async function createEnsembleTeam(
         })
       }
     }
+    // disbandTeam merges and removes worktrees from the stored record.
+    persist({ agents: team.agents })
   }
 
   const buildPrompt = (agentName: string, otherNames: string[], agentIndex: number) => {
@@ -367,6 +446,10 @@ export async function createEnsembleTeam(
   for (let i = 0; i < team.agents.length; i++) {
     const agentSpec = team.agents[i]
     const agentName = `${team.name}-${agentSpec.name}`
+    if (teamWasDisbanded()) {
+      console.log(`[Ensemble] Team ${team.id} was disbanded during startup — not spawning ${agentName}`)
+      return
+    }
     const prompt = buildPrompt(agentSpec.name, team.agents.filter((_, j) => j !== i).map(a => a.name), i)
 
     ensureCollabDirs(team.id)
@@ -384,6 +467,13 @@ export async function createEnsembleTeam(
         workingDirectory: agentCwd,
       })
 
+      if (teamWasDisbanded()) {
+        // disbandTeam only kills agents it saw as active; this one is not recorded yet.
+        console.log(`[Ensemble] Team ${team.id} was disbanded while ${agentName} was spawning — killing it`)
+        await killLocalAgent(agentName).catch(() => { /* session may already be gone */ })
+        return
+      }
+
       team.agents[i].agentId = spawned.id
       team.agents[i].status = 'active'
 
@@ -392,6 +482,7 @@ export async function createEnsembleTeam(
         content: `${agentSpec.name} (${agentSpec.program}) has joined #${team.name}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
+      persist({ agents: team.agents })
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err)
       console.error(`[Ensemble] Failed to spawn ${agentName}:`, message)
@@ -401,24 +492,16 @@ export async function createEnsembleTeam(
         content: `Failed to spawn ${agentName}: ${message}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
+      persist({ agents: team.agents })
     }
   }
 
-  updateTeam(team.id, { ...team, status: 'active' })
+  persist({ status: 'active', agents: team.agents })
 
   // Phase 2: Wait for ALL agents to be ready, then inject prompts
   const activeAgents = team.agents.filter(a => a.status === 'active')
   if (activeAgents.length >= 2) {
     const runtime = getRuntime()
-
-    // A team can be disbanded (API, auto-disband) while startup is
-    // still waiting on readiness. Without this, startup marches on and reports
-    // confusing "PTY session not found" failures for sessions it killed itself.
-    const teamWasDisbanded = (): boolean => {
-      if (fs.existsSync(collabFinishedMarker(team.id))) return true
-      const current = getTeam(team.id)
-      return !current || current.status === 'disbanded'
-    }
 
     const sessionHasExited = async (sessionName: string): Promise<boolean> => {
       try {
@@ -531,7 +614,7 @@ export async function createEnsembleTeam(
 
     if (teamWasDisbanded()) {
       console.log(`[Ensemble] Team ${team.id} was disbanded during startup — skipping prompt injection`)
-      return { data: { team }, status: 201 }
+      return
     }
 
     const ready = readyResults.filter(r => r.ready)
@@ -572,7 +655,7 @@ export async function createEnsembleTeam(
         content: `❌ Team start aborted: no agents available for prompt injection`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
-      return { data: { team }, status: 201 }
+      return
     }
     if (notReady.length > 0) {
       // Give the non-ready agents a small extra grace window before pasting,
@@ -661,9 +744,14 @@ export async function createEnsembleTeam(
         type: 'chat', timestamp: new Date().toISOString(),
       })
     }
+  } else {
+    // Nobody is told this over HTTP any more (the POST answered 202 long ago), so say it in the feed.
+    appendMessage(team.id, {
+      id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
+      content: `❌ Team start aborted: only ${activeAgents.length} of ${team.agents.length} agents spawned (at least 2 are needed)`,
+      type: 'chat', timestamp: new Date().toISOString(),
+    })
   }
-
-  return { data: { team }, status: 201 }
 }
 
 export function getEnsembleTeam(teamId: string): ServiceResult<{ team: EnsembleTeam; messages: EnsembleMessage[] }> {

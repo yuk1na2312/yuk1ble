@@ -116,7 +116,7 @@ const server = http.createServer(async (req, res) => {
         } catch {
           return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
         }
-        const result = await createEnsembleTeam(body as Parameters<typeof createEnsembleTeam>[0])
+        const result = await createEnsembleTeam(body)
         if (result.error) return json(res, { error: result.error }, result.status, origin)
         return json(res, result.data, result.status, origin)
       }

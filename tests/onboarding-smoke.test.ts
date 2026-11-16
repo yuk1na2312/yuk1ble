@@ -146,7 +146,8 @@ describe('onboarding smoke test', () => {
       }),
     })
 
-    expect(createResponse.status).toBe(201)
+    // 202: the team record exists, agents are spawned and prompted in the background.
+    expect(createResponse.status).toBe(202)
     const createPayload = await createResponse.json()
     expect(createPayload.team).toMatchObject({
       name: 'my-first-team',
@@ -162,5 +163,14 @@ describe('onboarding smoke test', () => {
     expect(teamsAfterOutput).toContain('my-first-team')
     expect(teamsAfterOutput).toContain('codex-1')
     expect(teamsAfterOutput).toContain('claude-2')
+
+    // Startup carries on after the 202: the agents get their task and the feed says so.
+    // (Also keeps this test from deleting its data dir under a still-running startup.)
+    await vi.waitFor(async () => {
+      const feed = await (await fetch(`${baseUrl}/api/ensemble/teams/${createPayload.team.id}/feed`)).json() as {
+        messages: Array<{ content: string }>
+      }
+      expect(feed.messages.some(m => m.content.includes('collaboration started'))).toBe(true)
+    }, { timeout: 15_000, interval: 250 })
   })
 })
