@@ -5,43 +5,34 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
+import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, ServiceResult } from '../types/ensemble'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
   appendMessage, getMessages,
 } from '../lib/ensemble-registry'
-import {
-  spawnLocalAgent, killLocalAgent,
-  getAgentTokenUsage,
-} from '../lib/agent-spawner'
+import { spawnLocalAgent, killLocalAgent } from '../lib/agent-spawner'
 import { getRuntime } from '../lib/agent-runtime'
-import { getFeedFile } from '../lib/ensemble-paths'
-import { deliver, deliverStrict, MAX_PENDING_DELIVERIES } from '../lib/delivery'
+import { deliverStrict } from '../lib/delivery'
 import { resolveAgentProgram, resolveReadyMarkers, listProgramNames, resolveAgentModels, isValidModel } from '../lib/agent-config'
 import { waitForReady as waitForReadyScreen } from '../lib/readiness'
-import { AgentWatchdog } from '../lib/agent-watchdog'
-import { bus } from '../lib/bus'
 import {
-  collabPromptFile, collabSummaryFile,
-  collabRuntimeDir, collabFinishedMarker,
-  ensureCollabDirs, scrubCollabRuntimePaths,
+  collabPromptFile, collabRuntimeDir, collabFinishedMarker, ensureCollabDirs,
 } from '../lib/collab-paths'
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from '../lib/worktree-manager'
 import { runStagedWorkflow } from '../lib/staged-workflow'
+import { buildPromptPreview } from '../lib/prompts'
+import { writeDisbandSummary } from '../lib/summary'
+import { TeamSupervisor } from '../lib/team-supervisor'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.resolve(__dirname, '..')
+// The pieces that used to live here; callers and tests keep importing them from the service.
+export { loadCollabTemplate, buildPromptPreview } from '../lib/prompts'
+export { writeDisbandSummary } from '../lib/summary'
+export { sendTeamMessage, type SendMessageResult } from '../lib/messaging'
 
-interface ServiceResult<T> {
-  data?: T
-  error?: string
-  status: number
-}
+const supervisor = new TeamSupervisor(teamId => disbandTeam(teamId))
 
-const IDLE_CHECK_INTERVAL_MS = 15_000
 // How long a freshly spawned agent CLI may take to reach its input prompt.
 // 60s is not enough for a Claude Code with a heavy MCP/plugin/hook stack —
 // loading a large session context routinely runs past a minute on a cold start.
@@ -49,236 +40,10 @@ const READY_TIMEOUT_MS = Math.max(
   5_000,
   Number(process.env.ENSEMBLE_READY_TIMEOUT_MS) || 150_000
 )
-// How long a team may sit with no agent message before it is auto-disbanded.
-// Long on purpose: agents routinely go quiet for many minutes while running a
-// build, a test suite, or a long review, and disbanding mid-thought throws away
-// live sessions the user is still watching. The short, fuzzy "someone said
-// done" heuristic that used to end runs seconds after a closing remark is gone
-// — a run now ends when the agents send the explicit sentinel, when the user
-// disbands, or when it has genuinely gone idle for this long.
-const IDLE_DISBAND_MS = Math.max(
-  60_000,
-  Number(process.env.ENSEMBLE_IDLE_DISBAND_MS) || 3_600_000
-)
 // Unchanged-screen window that stands in for an unrecognised ready marker.
 const QUIESCENT_READY_MS = 20_000
-const MIN_MESSAGES_BEFORE_AUTO_DISBAND = 10
 /** Every agent is a PTY with its own CLI process tree; this bounds a runaway request. */
 const MAX_TEAM_SIZE = 8
-// Explicit sentinel: when every agent still active has sent this exact marker
-// as a full message, the team auto-disbands immediately — no idle wait, no minimum
-// message count. Agents are instructed to use it in buildPromptPreview. It is
-// checked on the bus 'message' event, the moment the last one is appended.
-const EXPLICIT_DONE_SENTINEL = '<<COLLAB_DONE>>'
-
-class EnsembleService {
-  private readonly disbandingTeams = new Set<string>()
-  private readonly idleCheckTimer: NodeJS.Timeout
-  private readonly watchdog: AgentWatchdog
-  private readonly unsubscribeMessages: () => void
-
-  constructor() {
-    this.unsubscribeMessages = bus.on('message', message => this.onMessage(message))
-    this.idleCheckTimer = setInterval(() => {
-      void this.checkIdleTeams()
-    }, IDLE_CHECK_INTERVAL_MS)
-    this.idleCheckTimer.unref()
-    this.watchdog = new AgentWatchdog({
-      loadTeams,
-      getMessages: (teamId: string) => getMessages(teamId),
-      appendMessage,
-      getRuntime,
-      resolveAgentProgram,
-      markAgentStalled: (teamId: string, agentName: string, stalledAt: string) => {
-        const team = getTeam(teamId)
-        if (!team) return
-        const agents = team.agents.map(agent =>
-          agent.name === agentName ? { ...agent, stalledAt } : agent
-        )
-        updateTeam(teamId, { ...team, agents })
-      },
-    })
-
-    for (const signal of ['SIGINT', 'SIGTERM', 'beforeExit', 'exit'] as const) {
-      process.once(signal, () => this.stop())
-    }
-  }
-
-  /**
-   * The done sentinel from an agent. Runs synchronously inside the store's
-   * emit, so the disband itself is deferred to a microtask: starting it here
-   * would append its own message before later listeners have seen this one.
-   */
-  private onMessage(message: EnsembleMessage): void {
-    if (message.content?.trim() !== EXPLICIT_DONE_SENTINEL) return
-    const team = getTeam(message.teamId)
-    if (!team || team.status !== 'active') return
-
-    const activeNames = new Set(team.agents.filter(a => a.status === 'active').map(a => a.name))
-    const sentinelSenders = new Set(
-      getMessages(team.id)
-        .filter(m => activeNames.has(m.from) && m.content?.trim() === EXPLICIT_DONE_SENTINEL)
-        .map(m => m.from),
-    )
-    // With two agents this is "both"; with N it is every one of them.
-    if (activeNames.size === 0 || sentinelSenders.size < activeNames.size) return
-    queueMicrotask(() => { void this.autoDisband(team, `every active agent sent ${EXPLICIT_DONE_SENTINEL}`) })
-  }
-
-  /** Disband teams that have gone quiet. Elapsed time is the only condition here, so it is a timer. */
-  async checkIdleTeams(): Promise<void> {
-    const teams = loadTeams().filter(team => team.status === 'active')
-
-    for (const team of teams) {
-      const reason = this.idleReason(team)
-      if (reason) await this.autoDisband(team, reason)
-    }
-  }
-
-  private async autoDisband(team: EnsembleTeam, reason: string): Promise<void> {
-    if (this.disbandingTeams.has(team.id)) return
-    this.disbandingTeams.add(team.id)
-
-    try {
-      appendMessage(team.id, {
-        id: randomUUID(),
-        teamId: team.id,
-        from: 'ensemble',
-        to: 'team',
-        content: `Auto-disband: ${reason}`,
-        type: 'chat',
-        timestamp: new Date().toISOString(),
-      })
-
-      await disbandTeam(team.id) // writes the summary before killing sessions
-    } catch (err) {
-      console.error(`[Ensemble] Auto-disband failed for ${team.id}:`, err)
-    } finally {
-      this.disbandingTeams.delete(team.id)
-    }
-  }
-
-  /** Why this team has gone idle long enough to disband, or null to leave it running. */
-  private idleReason(team: EnsembleTeam): string | null {
-    const nonEnsembleMessages = getMessages(team.id).filter(message => message.from !== 'ensemble')
-    const lastMessage = nonEnsembleMessages[nonEnsembleMessages.length - 1]
-    if (!lastMessage) return null
-
-    // Don't auto-disband until agents have exchanged enough messages
-    if (nonEnsembleMessages.length < MIN_MESSAGES_BEFORE_AUTO_DISBAND) return null
-
-    // Robust timestamp handling: skip idle check if no timestamp available
-    const lastTimestamp = lastMessage.timestamp
-      ? new Date(lastMessage.timestamp).getTime()
-      : NaN
-    if (Number.isNaN(lastTimestamp)) return null
-
-    const activeAgents = team.agents.filter(agent => agent.status === 'active')
-    if (activeAgents.length === 0) return null
-
-    // Nothing said for a long time — the run is over in practice. Wording is
-    // deliberately not consulted: phrases like "done" or "completed" appear
-    // constantly in normal working chatter, and treating them as an end signal
-    // used to kill teams seconds after a closing remark, mid-conversation.
-    const idleForMs = Date.now() - lastTimestamp
-    if (idleForMs < IDLE_DISBAND_MS) return null
-    return `no agent message for ${formatDuration(idleForMs)}`
-  }
-
-  private stop(): void {
-    clearInterval(this.idleCheckTimer)
-    this.unsubscribeMessages()
-    this.watchdog.stop()
-  }
-}
-
-const ensembleService = new EnsembleService()
-
-function formatDuration(durationMs: number): string {
-  const durationMin = Math.max(0, Math.round(durationMs / 60000))
-  return durationMin >= 60
-    ? `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`
-    : `${durationMin}m`
-}
-
-export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['templates'][string] | undefined {
-  if (!templateName) return undefined
-  try {
-    const templatesPath = path.join(__dirname, '..', 'collab-templates.json')
-    const raw = fs.readFileSync(templatesPath, 'utf-8')
-    const data: CollabTemplatesFile = JSON.parse(raw)
-    const template = data.templates[templateName]
-    if (!template) {
-      console.warn(`[Ensemble] Unknown template "${templateName}", falling back to default roles`)
-      return undefined
-    }
-    console.log(`[Ensemble] Loaded template "${templateName}" (${template.name})`)
-    return template
-  } catch (err) {
-    console.warn(`[Ensemble] Failed to load templates:`, err)
-    return undefined
-  }
-}
-
-export function buildPromptPreview(params: {
-  teamId: string
-  teamName: string
-  description: string
-  agentName: string
-  teammateNames: string[]
-  agentIndex: number
-  templateName?: string
-}): string {
-  const template = loadCollabTemplate(params.templateName)
-  const cli = `node "${path.join(REPO_ROOT, 'bin', 'ensemble.cjs')}"`
-  // `team` reaches every teammate; a teammate's name reaches just that one.
-  const teamSayCmd = `${cli} team-say ${params.teamId} ${params.agentName} team`
-  const teamReadCmd = `${cli} team-read ${params.teamId}`
-
-  let roleInstructions: string[]
-
-  if (template && params.agentIndex < template.roles.length) {
-    const templateRole = template.roles[params.agentIndex]
-    roleInstructions = [
-      `ROLE: ${templateRole.role}.`,
-      templateRole.focus,
-    ]
-  } else {
-    const isLead = params.agentIndex === 0
-    const roleName = isLead ? 'LEAD' : 'WORKER'
-    roleInstructions = isLead
-      ? [
-          `ROLE: ${roleName}.`,
-          `You own architecture, planning, high-level design, task breakdown, and code review.`,
-          `Your first action after greeting is to share a concrete implementation plan with your teammates before any implementation starts.`,
-          `Keep the workers focused by delegating clear implementation steps, reviewing progress, and calling out risks or design corrections early.`,
-        ]
-      : [
-          `ROLE: ${roleName}.`,
-          `You own implementation, writing code, running tests, and reporting concrete execution progress.`,
-          `After greeting, wait for the lead's plan before starting implementation work.`,
-          `Once the lead shares a plan, execute it pragmatically, report what you changed, and surface blockers or test failures quickly.`,
-        ]
-  }
-
-  return [
-    `You are ${params.agentName} in team "${params.teamName}" with teammate${params.teammateNames.length === 1 ? '' : 's'} ${params.teammateNames.join(', ')}.`,
-    `Task: ${params.description}`,
-    ...roleInstructions,
-    `COMMUNICATION RULES:`,
-    `1. Send findings: ${teamSayCmd} "your message" (the recipient "team" reaches every teammate; use a teammate's name instead to message only them)`,
-    `2. Read teammate messages: ${teamReadCmd}`,
-    `3. After EVERY analysis step, run team-say to share what you found`,
-    `4. After EVERY team-say, run team-read to check for responses`,
-    `5. If teammate shared findings, RESPOND to them`,
-    `6. Keep alternating: analyze, share, read, respond, analyze`,
-    `DONE PROTOCOL (important):`,
-    `7. When you believe the task is fully converged and there is nothing substantive left to say, explicitly propose closure to your teammates in a normal team-say message ("I think we're done because X — agree?").`,
-    `8. Only once your teammates have confirmed agreement, send a FINAL team-say whose message is EXACTLY the sentinel <<COLLAB_DONE>> (nothing else, no quotes, no prose). As soon as every agent still active in the team has sent <<COLLAB_DONE>>, the system auto-disbands the team and writes the summary — so do not send it prematurely.`,
-    `9. Before sending <<COLLAB_DONE>>, make sure the important conclusions (recommendation, rationale, build list, layout, decisions) are actually present as long team-say messages in the transcript — that is what the summary will preserve. Do not keep insights only in your head.`,
-    `Start NOW: greet your teammates with team-say, then begin.`,
-  ].join(' ')
-}
 
 export interface CreateTeamResult extends ServiceResult<{ team: EnsembleTeam }> {
   /**
@@ -661,138 +426,13 @@ export function listEnsembleTeams(): ServiceResult<{ teams: EnsembleTeam[] }> {
 }
 
 export async function checkIdleTeams(): Promise<void> {
-  await ensembleService.checkIdleTeams()
+  await supervisor.checkIdleTeams()
 }
 
 export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ messages: EnsembleMessage[] }> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
   return { data: { messages: getMessages(teamId, since) }, status: 200 }
-}
-
-export interface SendMessageResult extends ServiceResult<{ message: EnsembleMessage }> {
-  /**
-   * Settles when the message has been pasted into every recipient's terminal and
-   * submitted. The HTTP route does not wait for it: the message is in the feed
-   * before the response, and delivery carries on through the per-session queue.
-   * Never rejects; a failed delivery is written to the feed. Tests await it.
-   */
-  delivery?: Promise<void>
-}
-
-export async function sendTeamMessage(
-  teamId: string, to: string, content: string, from?: string,
-  existingId?: string, existingTimestamp?: string,
-): Promise<SendMessageResult> {
-  const team = getTeam(teamId)
-  if (!team) return { error: 'Team not found', status: 404 }
-  if (typeof content !== 'string' || !content.trim()) return { error: 'content is required', status: 400 }
-
-  const message: EnsembleMessage = {
-    id: existingId || randomUUID(), teamId, from: from || 'user', to, content,
-    type: 'chat', timestamp: existingTimestamp || new Date().toISOString(),
-  }
-  appendMessage(teamId, message)
-
-  // Determine which agents should receive this message in their terminal
-  const sender = from || 'user'
-  const recipients = to === 'team'
-    ? team.agents.filter(a => a.status === 'active' && a.name !== sender)
-    : team.agents.filter(a => a.status === 'active' && a.name === to)
-
-  const note = (text: string): void => {
-    appendMessage(teamId, {
-      id: randomUUID(), teamId, from: 'ensemble', to: 'team', content: text,
-      type: 'chat', timestamp: new Date().toISOString(),
-    })
-  }
-
-  // Wrap the message with sender context + a response nudge
-  const deliveryText = [
-    `[Team message from ${sender}]: ${content}`,
-    `→ Respond with team-say. Then run team-read to check for more messages.`,
-  ].join('\n')
-
-  const delivery = Promise.all(recipients.map(async targetAgent => {
-    const sessionName = `${team.name}-${targetAgent.name}`
-    try {
-      // No inputMethod: messages are always pasted, never typed. A session that is gone (agent finished) is skipped.
-      const outcome = await deliver(sessionName, deliveryText, {
-        pasteMarker: resolveAgentProgram(targetAgent.program)?.pasteMarker,
-      })
-      if (outcome === 'dropped') {
-        note(`❌ Delivery to ${targetAgent.name} dropped: ${MAX_PENDING_DELIVERIES} messages are already waiting for its terminal`)
-      }
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err)
-      note(`❌ Delivery to ${targetAgent.name} failed: ${reason}`)
-    }
-  })).then(() => undefined, err => {
-    console.error(`[Ensemble] Message delivery for ${teamId} failed unexpectedly:`, err)
-  })
-
-  return { data: { message }, status: 200, delivery }
-}
-
-/**
- * Write a summary file for a disbanded team — used by auto-disband and can be
- * picked up by the background watcher in the Claude Code session.
- * Writes the human-readable summary.txt for a disbanded team.
- */
-export async function writeDisbandSummary(teamId: string): Promise<void> {
-  const team = getTeam(teamId)
-  if (!team) return
-
-  const messages = getMessages(teamId)
-  const agentMsgs = messages.filter(m => m.from !== 'ensemble' && m.from !== 'user')
-  if (agentMsgs.length === 0) return
-
-  const now = new Date()
-  const createdAt = new Date(team.createdAt)
-  const durationMs = now.getTime() - createdAt.getTime()
-  const duration = formatDuration(durationMs)
-
-  const agents = [...new Set(agentMsgs.map(m => m.from))]
-
-  // Scrape token usage from each agent's terminal (best-effort)
-  const tokenUsageMap: Record<string, string> = {}
-  await Promise.all(
-    team.agents
-      .filter(a => a.status === 'active')
-      .map(async (agent) => {
-        const sessionName = `${team.name}-${agent.name}`
-        tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName, agent.program)
-      })
-  )
-
-  const cleanContent = (s: string) => scrubCollabRuntimePaths(s).trim()
-
-  const summaryText = agents.map(agent => {
-    const msgs = agentMsgs
-      .filter(m => m.from === agent)
-      .map(m => ({ ...m, content: cleanContent(m.content) }))
-      .filter(m => m.content && m.content !== EXPLICIT_DONE_SENTINEL)
-    const tokens = tokenUsageMap[agent] || 'unknown'
-    // Pick the top 3 longest substantive messages — these almost always
-    // contain the recommendation, rationale, build list, or concrete
-    // conclusions that matter. Fall back to first/last if <3 total.
-    const ranked = [...msgs].sort((a, b) => b.content.length - a.content.length).slice(0, 3)
-    const keyMsgs = ranked.length
-      ? ranked
-          .map((m, i) => `  [${i + 1}] (${m.content.length} chars)\n    ${m.content.slice(0, 1200).replace(/\n/g, '\n    ')}`)
-          .join('\n')
-      : '  (no substantive messages)'
-    return `${agent} (${msgs.length} msgs, tokens: ${tokens})\nKey messages:\n${keyMsgs}`
-  }).join('\n\n')
-
-  const summaryFile = collabSummaryFile(teamId)
-  const transcriptPointer = getFeedFile(teamId)
-  fs.mkdirSync(path.dirname(summaryFile), { recursive: true })
-  fs.writeFileSync(
-    summaryFile,
-    `Task: ${team.description || 'unknown'}\nDuration: ${duration}\nMessages: ${agentMsgs.length}\nFull transcript: ${transcriptPointer}\n\n${summaryText}`,
-  )
-  console.log(`[Ensemble] Summary written to ${summaryFile}`)
 }
 
 export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team: EnsembleTeam }>> {

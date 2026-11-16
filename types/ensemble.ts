@@ -1,3 +1,10 @@
+/** What a service call answers with; the HTTP layer turns `error` into the response body and `status` into its code. */
+export interface ServiceResult<T> {
+  data?: T
+  error?: string
+  status: number
+}
+
 export interface EnsembleTeam {
   id: string
   name: string
