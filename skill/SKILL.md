@@ -18,16 +18,19 @@ dir; `lib/collab-paths.ts` resolves this as `os.tmpdir()/ensemble`, overridable 
 `$env:ENSEMBLE_RUNTIME_DIR`).
 
 ## Path Convention
-All collab artifacts live in `%TEMP%\ensemble\<TEAM_ID>\`:
-- `messages.jsonl` — agent + ensemble message log (what `team-say`/`team-read` write and
-  read; the server also merges its own `<ENSEMBLE_DATA_DIR>\messages\<TEAM_ID>\feed.jsonl`,
-  default `~\.ensemble\messages\<TEAM_ID>\feed.jsonl`, when you read via the API)
+Runtime artifacts live in `%TEMP%\ensemble\<TEAM_ID>\`:
 - `summary.txt` — written on disband by ensemble-service
-- `bridge.pid` — PID of the `ensemble bridge` process, spawned automatically on team
-  creation (see Step 2)
-- `bridge.log` — bridge stdout/stderr; check here if push delivery isn't working
 - `prompts/`, `delivery/` — agent prompt/delivery files
 - `.finished` — written by ensemble-service AFTER summary.txt
+
+The **transcript is not in that directory.** The server holds it in memory and logs every
+message, one JSON object per line (each with a per-team `seq`), to
+`<ENSEMBLE_DATA_DIR>\ensemble\messages\<TEAM_ID>\feed.jsonl` — by default
+`%USERPROFILE%\.ensemble\ensemble\messages\<TEAM_ID>\feed.jsonl`. `summary.txt` names the
+exact path on its `Full transcript:` line. Read the transcript through the API while the
+run is live (Step 4); open the file afterwards if you need all of it. A team created
+before the in-memory store may also have a `messages.jsonl` in the runtime dir — the
+server merges it into the feed.
 
 There is no `team-id` marker file. The team ID comes back directly in the JSON response
 of the team-create API call (Step 1) — capture it there, don't read it from disk.
@@ -65,31 +68,26 @@ background and report through the team status and the feed (`ensemble` messages 
 (fewer than 2 agents, a missing `program`, no name or description) is a **400** with the
 reason in `error`.
 
-### Step 2: Confirm the message bridge is running
+### Step 2: Confirm the agents came up
 
-`createEnsembleTeam` spawns the bridge for you, detached, as soon as the team goes
-active — you do **not** start it by hand. The bridge is what pastes one agent's
-`team-say` into the *other* agent's terminal; without it, messages only accumulate in
-`messages.jsonl` and a quiet agent is never woken.
-
-Verify it came up (it writes its own PID file at spawn time):
+The team starts in the background, so give it a moment, then check its status and the
+`ensemble` lines of its feed:
 
 ```powershell
-$RD = "$env:TEMP\ensemble\$TEAM_ID"
-$bridgePid = Get-Content "$RD\bridge.pid" -ErrorAction SilentlyContinue
-if ($bridgePid -and (Get-Process -Id $bridgePid -ErrorAction SilentlyContinue)) {
-  "bridge running (pid $bridgePid)"
-} else {
-  "BRIDGE NOT RUNNING — see $RD\bridge.log; push delivery is down"
-}
+$t = Invoke-RestMethod "http://localhost:23000/api/ensemble/teams/$TEAM_ID"
+$t.team.status                                        # forming -> active
+$t.messages | Where-Object from -eq 'ensemble' | ForEach-Object content
 ```
 
-If it did not start, team creation still succeeded and `team-read` still works — the
-collaboration degrades to pull-only rather than failing outright. Check `bridge.log` in
-the same directory, and tell the user push delivery is down.
+Good: `... has joined #<team>` for each agent, then `collaboration started`. Bad:
+`Failed to spawn ...`, `did not signal ready in time` (injected anyway, best effort),
+`Team start aborted ...` or `Team startup failed ...` (the team is disbanded; tell the user
+why and stop).
 
-The bridge stops itself: on the `.finished` marker, and also if the server becomes
-unreachable for three consecutive 30s health checks. Disband tree-kills it as a backstop.
+Messages between agents need nothing running besides the server: `team-say` POSTs to it,
+and it records the message and pastes it into the other agent's terminal. If the server
+dies, the agents die with it and `team-say` fails with an error instead of silently
+dropping the message.
 
 ### Step 3: Tell the user where to watch
 
@@ -103,18 +101,21 @@ surfaces the conversation inline in this chat.
 poll result must be presented clearly and formatted as a readable conversation. Do NOT
 just dump raw output — format it as a proper dialogue.
 
-Poll `messages.jsonl` and present only the NEW lines each time — track how many lines
-you've already shown between polls (e.g. with the Read tool's `offset`, or by counting
-lines yourself):
+Poll the feed and present only the NEW messages each time. Every message has a `seq`;
+remember the highest one you have shown and pass it as `since`:
 
 ```powershell
-$RD = "$env:TEMP\ensemble\<TEAM_ID>"
-Get-Content "$RD\messages.jsonl" -Tail 50
+$since = 0   # keep this between polls
+$feed = Invoke-RestMethod "http://localhost:23000/api/ensemble/teams/$TEAM_ID/feed?since=$since"
+foreach ($m in $feed.messages) { "[{0}] {1} -> {2}: {3}" -f $m.seq, $m.from, $m.to, $m.content }
+if ($feed.messages) { $since = ($feed.messages | Select-Object -Last 1).seq }
 ```
 
-Each line is one JSON object: `{"from": "...", "to": "...", "content": "...", ...}`.
-Skip `from: "ensemble"` lines unless they're a status you want to surface (e.g. an agent
-leaving).
+Each message is `{"seq": 7, "from": "...", "to": "...", "content": "...", ...}`. Skip
+`from: "ensemble"` messages unless they're a status you want to surface (e.g. an agent
+leaving). The agents themselves read the feed with
+`node "__ENSEMBLE_DIR__\bin\ensemble.cjs" team-read <TEAM_ID>`, which prints every message as
+`from -> to: content` — handy for a one-off look at the whole conversation.
 
 **Presentation rules — THIS IS THE KEY PART:**
 After each poll, present the new messages to the user like this:
@@ -129,37 +130,38 @@ check in 15s."
 
 **Completion check**, each poll:
 ```powershell
+$RD = "$env:TEMP\ensemble\$TEAM_ID"
 Test-Path "$RD\.finished"
 ```
-`summary.txt` is written before `.finished`, so once `.finished` exists it's safe to read
-`summary.txt` and present it as the final summary. Stop polling.
+(or `(Invoke-RestMethod "http://localhost:23000/api/ensemble/teams/$TEAM_ID").team.status`
+being `disbanded`). `summary.txt` is written before `.finished`, so once `.finished`
+exists it's safe to read `summary.txt` and present it as the final summary. Stop polling.
+If the API stops answering, the server is down and the agents went with it — tell the
+user, there is nothing left to wait for.
 
 **Polling cadence:**
 - First poll: wait ~10s
 - Normal: wait 15-20s between polls
-- If 3+ consecutive polls with no new lines: wait 30s (agents in deep work)
+- If 3+ consecutive polls with no new messages: wait 30s (agents in deep work)
 - On `.finished`: stop polling, present final summary
 
 **When done**, cleanup is fully automatic: the server tears down the agent sessions and
 writes `summary.txt` itself (auto-disband, `disbandTeam` in
-`services/ensemble-service.ts`), which also stops the bridge — gracefully via the
-`.finished` marker, then tree-kills it as a backstop. Nothing needs to be killed
-manually. If you want to be sure, check that the PID in `bridge.pid` has exited
-(`Get-Process -Id <pid> -ErrorAction SilentlyContinue`).
+`services/ensemble-service.ts`), as soon as both agents have sent `<<COLLAB_DONE>>`, when
+the user disbands, or after an hour of silence. Nothing needs to be killed manually.
 
 ## Important Notes
 - Agents run with auto-accept permissions configured in `agents.json`: codex uses
   `--dangerously-bypass-approvals-and-sandbox`, claude uses `--permission-mode auto`.
   They should NEVER ask for file write approval.
 - Do not modify project code during a collab session unless the user explicitly asks
-- Do not truncate or remove `messages.jsonl`
+- Do not edit or delete the team's `feed.jsonl` while the server is running — the server
+  keeps the transcript in memory and would not see the change anyway.
 - Multiple collabs can run simultaneously — each has its own `%TEMP%\ensemble\<TEAM_ID>\` namespace
-- The message bus is `team-say` / `team-read`, Node CLI subcommands in `cli/ensemble.ts`.
-  Agents invoke them as `node "__ENSEMBLE_DIR__\bin\ensemble.cjs" team-say <team-id> <from> <to> <message>`.
-  Writes are appended to `messages.jsonl` under an atomic `fs.mkdirSync`-based lock
-  (`acquireFileLock` in `lib/ensemble-registry.ts`) — there is no `.sh` script or
-  `fcntl.flock` involved.
-- `ensemble bridge <team-id>` has a PID-file guard (won't double-spawn for the same
-  team), a server health check on startup, and exponential backoff on delivery failures.
-- `.finished` and `summary.txt` are written by ensemble-service, NOT by the CLI or the bridge.
-- Bridge auto-stops when it sees the `.finished` marker.
+- The message bus is `team-say` / `team-read`, Node CLI subcommands in `cli/ensemble.ts`
+  (a pure HTTP client). Agents invoke them as
+  `node "__ENSEMBLE_DIR__\bin\ensemble.cjs" team-say <team-id> <from> <to> <message>`; it prints
+  `Sent to <to>` on success and exits non-zero with an error on stderr if the server
+  is unreachable or rejects the message. There is no bridge process and no message file
+  to append to.
+- `.finished` and `summary.txt` are written by ensemble-service, NOT by the CLI.

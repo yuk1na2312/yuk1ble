@@ -22,12 +22,17 @@ has been removed rather than gated.
 - **Runtime layer:** agent sessions live behind the `AgentRuntime` interface in
   `lib/agent-runtime.ts`. `PtyRuntime` (node-pty + ConPTY) is the only implementation and
   is installed unconditionally with `setRuntime(new PtyRuntime())`.
+- **State:** the server process owns all team and message state **in memory**
+  (`lib/ensemble-registry.ts`). `teams.json` (temp file + rename, debounced 100 ms, flushed
+  on exit) and one `feed.jsonl` per team are only a persistence log: they are read once and
+  never polled. Messages carry a per-team `seq`; `lib/bus.ts` announces `team`, `message`
+  and `log` events. The CLI is a pure HTTP client — there is no second process per team.
 
 ## Current state
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
 live PTY panes, teardown kills the full process tree. `npm run typecheck`, `npm run lint`
-and `npm test` (95 tests / 9 files) are green. What remains is repeated real-world use.
+and `npm test` (122 tests / 15 files) are green. What remains is repeated real-world use.
 
 ---
 
@@ -37,7 +42,7 @@ and `npm test` (95 tests / 9 files) are green. What remains is repeated real-wor
 server.ts                 HTTP API entrypoint (port 23000) + serves the GUI at /
 public/index.html         monitoring GUI (teams, transcript, live panes, server log)
 cli/
-  ensemble.ts             CLI entrypoint (status, run, steer, team-say, team-read, bridge)
+  ensemble.ts             CLI entrypoint (status, run, steer, team-say, team-read) — pure HTTP client
 lib/
   agent-runtime.ts        AgentRuntime interface + getRuntime/setRuntime + sync helpers
   pty-runtime.ts          the only runtime: node-pty sessions, scrollback, tree-kill
@@ -46,7 +51,8 @@ lib/
   agent-spawner.ts        spawnLocalAgent / killLocalAgent (PowerShell command line)
   agent-watchdog.ts       liveness (nudge → stall via sessionExists)
   agent-config.ts         agents.json loader, resolveAgentProgram/resolveReadyMarkers
-  ensemble-registry.ts    team/agent state + message feed persistence
+  ensemble-registry.ts    in-memory store: teams, per-team feed (seq, 5,000-message cap) + persistence log
+  bus.ts                  typed event bus: `team`, `message`, `log`
   log-buffer.ts           tees console.* into a ring buffer for GET /api/ensemble/logs
   win-process.ts          killProcessTree / killProcessTreeSync / PowerShell quoting (one copy)
   collab-paths.ts, ensemble-paths.ts, staged-workflow.ts, worktree-manager.ts
@@ -57,7 +63,8 @@ bin/                      ensemble.cjs (CLI shim) + postinstall.cjs (node-pty ch
 agents.json               per-agent command/flags/readyMarker(s)/inputMethod/icon
 collab-templates.json     collaboration presets
 skill/SKILL.md            the /collab skill that drives ensemble from Claude Code
-tests/                    vitest; live-captured terminal screens used as fixtures
+tests/                    vitest; live-captured terminal screens used as fixtures;
+                          tests/helpers/boot-server.ts boots the real server on a free port
 .env.example              every environment variable the server and CLI read
 ```
 
@@ -92,14 +99,13 @@ CLI examples: `npx ensemble status`, `npx ensemble steer <team-id> "focus on the
 |---|---|---|
 | `ENSEMBLE_PORT` | `23000` | Server port |
 | `ENSEMBLE_HOST` | `127.0.0.1` | Bind address. Loopback by design — the API has no auth. |
-| `ENSEMBLE_URL` | `http://localhost:23000` | CLI target |
-| `ENSEMBLE_DATA_DIR` | `~/.ensemble` | Data dir |
+| `ENSEMBLE_URL` | `http://localhost:<ENSEMBLE_PORT>` | CLI target, and where agents' `team-say` posts. The server exports it to the agent terminals it spawns, so set it only for a CLI on another host. |
+| `ENSEMBLE_DATA_DIR` | `~/.ensemble` | Data dir: `ensemble/teams.json` and `ensemble/messages/<team-id>/feed.jsonl` (the transcript) |
 | `ENSEMBLE_AGENTS_CONFIG` | `./agents.json` | Alternative path to the agent program config |
 | `ENSEMBLE_CREATED_BY` | — | Cosmetic label stamped on created teams |
 | `ENSEMBLE_CORS_ORIGIN` | localhost only | Allowed CORS origins |
 | `ENSEMBLE_SHELL` | `pwsh.exe` (else `powershell.exe`) | Override the shell PTY binary. Never use `cmd.exe`. |
-| `ENSEMBLE_RUNTIME_DIR` | `%TEMP%\ensemble` | Per-team collab artifacts (`messages.jsonl`, `bridge.pid`, `prompts/`, `delivery/`) |
-| `ENSEMBLE_BRIDGE_STOP_GRACE_MS` | `1500` | Grace window before the collab bridge is tree-killed on disband |
+| `ENSEMBLE_RUNTIME_DIR` | `%TEMP%\ensemble` | Per-team collab artifacts: `summary.txt`, `.finished`, `prompts/`, `delivery/` (and a legacy `messages.jsonl` from before the store moved in-memory, merged into the feed on load) |
 | `ENSEMBLE_WATCHDOG_NUDGE_MS` | 90s | Idle time before the watchdog nudges an agent |
 | `ENSEMBLE_WATCHDOG_STALL_MS` | 180s | Time after a nudge before an agent is marked stalled |
 | `ENSEMBLE_AGENT_FLAGS` | — | Extra flags appended to spawned agent CLIs |
@@ -142,6 +148,18 @@ Copy `.env.example` to `.env` before running.
   `sessionExists`/`capturePane` quietly answer "no such session". Anything outside the
   server must be an HTTP client. Terminal output is only reachable over HTTP, via
   `GET /api/ensemble/sessions/:name/pane`.
+- **State lives in the server's memory; files are a log.** Nothing in the server reads
+  `teams.json` or a feed file to learn state — it loads them once and keeps going. A second
+  process writing those files is invisible to the server. Everything goes through the HTTP
+  API. `team-say` is a POST (`from`, `to`, `content`); it prints `Sent to <recipient>` and
+  exits non-zero if the server is unreachable or answers non-2xx, so an agent sees a lost
+  message. It returns once the message is pasted into the recipient's terminal (about 2 s).
+- **`POST /api/ensemble/teams` answers 202** with the team record straight away; spawning,
+  the readiness wait and prompt injection run in the background. Progress is the team
+  `status` and `ensemble` messages in the feed. A client that needs the agents ready must
+  watch those, not the response. Invalid bodies are a 400.
+- **On boot every `active`/`forming` team is marked `disbanded`** (`disbandLiveTeamsOnBoot`,
+  called from `server.ts` only): PTY sessions die with the server, so such a team has no agents.
 - **A paste alone never submits.** `pasteFromFile` writes the text and `\r` back to back;
   agent CLIs treat that CR as part of the paste burst and park it in the composer
   (`[Pasted Content 1929 chars]`). Only a *standalone* Enter submits. Every delivery path —
@@ -154,7 +172,8 @@ Copy `.env.example` to `.env` before running.
   only a PTY's direct children will tell you a live agent is dead. Walk the full ancestry.
 - **Do not infer completion from prose.** "done"/"completed" appear constantly in normal
   chatter; a heuristic on them killed a healthy run mid-conversation. A run ends on the
-  `<<COLLAB_DONE>>` sentinel, a manual disband, or `ENSEMBLE_IDLE_DISBAND_MS`.
+  `<<COLLAB_DONE>>` sentinel, a manual disband, or `ENSEMBLE_IDLE_DISBAND_MS`. The sentinel
+  is checked on the bus `message` event, so the run ends the moment the second agent sends it.
 - node-pty is a native module — `npm install` fails without a C++ toolchain.
 - `setRawMode` throws when stdin isn't a TTY — check `process.stdin.isTTY` first.
 - `pty.spawn` needs a real Windows path: a `cwd` with forward slashes fails with

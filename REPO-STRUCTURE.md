@@ -20,9 +20,9 @@ ensemble-win/
 ├─ package.json  tsconfig.json  .eslintrc.json  .gitignore  .env.example
 │
 ├─ cli/
-│  └─ ensemble.ts               CLI: status, run, steer, team-say, team-read, bridge
+│  └─ ensemble.ts               CLI (pure HTTP client): status, run, steer, team-say, team-read
 │
-├─ lib/                         14 modules, all reachable from server.ts
+├─ lib/                         15 modules, all reachable from server.ts
 │  ├─ agent-runtime.ts          AgentRuntime interface, getRuntime/setRuntime, sync helpers
 │  ├─ pty-runtime.ts            the only runtime: node-pty sessions, scrollback, tree-kill
 │  ├─ pane-readiness.ts         marker match · shell-prompt guard · quiescent-screen fallback
@@ -30,7 +30,8 @@ ensemble-win/
 │  ├─ agent-spawner.ts          spawnLocalAgent / killLocalAgent, PowerShell command line
 │  ├─ agent-watchdog.ts         liveness: nudge → stall via sessionExists
 │  ├─ agent-config.ts           agents.json loader + program/marker resolution
-│  ├─ ensemble-registry.ts      team + message persistence
+│  ├─ ensemble-registry.ts      in-memory team + message store; files are a persistence log
+│  ├─ bus.ts                    typed event bus: team, message, log
 │  ├─ log-buffer.ts             tees console.* into a ring buffer for the GUI log pane
 │  ├─ collab-paths.ts           %TEMP%\ensemble\<team-id>\… layout
 │  ├─ ensemble-paths.ts         ~/.ensemble data layout
@@ -42,7 +43,7 @@ ensemble-win/
 ├─ types/                       ensemble.ts (teams/messages) · agent-program.ts (agents.json)
 ├─ public/index.html            monitoring GUI: teams, transcript, live PTY panes, server log
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       9 vitest files, 95 tests
+├─ tests/                       15 vitest files, 122 tests (+ helpers/boot-server.ts)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -63,7 +64,7 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 95 passed / 9 files |
+| `npx vitest run` | 122 passed / 15 files |
 | `npx tsx server.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---
@@ -115,7 +116,9 @@ one name, Claude Code reads the other, both get the same text.
 module-level `Map` *inside the server process*. Any other process that calls
 `setRuntime(new PtyRuntime())` gets a second, permanently empty registry whose
 `sessionExists`/`capturePane` quietly answer "no such session". Terminal output is reachable
-only over HTTP, via `GET /api/ensemble/sessions/:name/pane`.
+only over HTTP, via `GET /api/ensemble/sessions/:name/pane`. The same goes for state: team
+and message data live in the server's memory and the files are only its log, so `team-say`
+is a POST, not a file append, and there is no per-team bridge process.
 
 **`services/ensemble-service.ts` stays runtime-agnostic.** Session behaviour belongs in
 `PtyRuntime` behind the unchanged `AgentRuntime` interface. That seam is the only reason

@@ -33,7 +33,7 @@ export function collabRuntimeDir(teamId: string): string {
   return path.join(RUNTIME_ROOT, teamId)
 }
 
-/** JSONL message log */
+/** Legacy transcript of teams from before the in-memory store; read once when a feed loads, never written. */
 export function collabMessagesFile(teamId: string): string {
   return path.join(RUNTIME_ROOT, teamId, 'messages.jsonl')
 }

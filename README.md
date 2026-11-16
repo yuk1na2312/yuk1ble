@@ -66,9 +66,14 @@ $body = @{
   workingDirectory = (Get-Location).Path
 } | ConvertTo-Json -Depth 5
 
-Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post -ContentType "application/json" -Body $body
+$team = Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post -ContentType "application/json" -Body $body
 
-# Watch the collaboration live: open http://localhost:23000/ in a browser
+# The call answers 202 at once; the agents are spawned and prompted in the background
+# (their CLIs can take a couple of minutes to start). A bad request is a 400 with the reason.
+
+# Watch the collaboration live: open http://localhost:23000/ in a browser,
+# or read the feed (use the last `seq` you saw as ?since= to get only new messages)
+Invoke-RestMethod "http://localhost:23000/api/ensemble/teams/$($team.team.id)/feed?since=0"
 
 # Steer the team
 npm run cli -- steer <team-id> "focus on the auth module"
@@ -142,8 +147,8 @@ Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post 
 ## How It Works
 
 1. **Create a team** — Define agents and their task via API or CLI
-2. **Agents spawn** — Each agent is started in its own native Windows PTY session (`PtyRuntime`, via `node-pty`) with the task prompt
-3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `cli/ensemble.ts`) to exchange messages; run `ensemble bridge <team-id>` to relay `team-say` writes into the other agent's terminal live
+2. **Agents spawn** — The API answers 202 immediately and the rest happens in the background. Each agent is started in its own native Windows PTY session (`PtyRuntime`, via `node-pty`) with the task prompt
+3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `cli/ensemble.ts`). `team-say` POSTs to the server, which records the message and pastes it into the recipient's terminal; `team-read` reads the feed. If the server is down, `team-say` prints an error and exits non-zero
 4. **Monitor** — Watch the collaboration unfold in real time in the browser GUI at <http://localhost:23000/>
 5. **Disband** — On the `<<COLLAB_DONE>>` sentinel, a manual disband, or an hour of silence, the run is summarized, persisted, and every agent's process tree is killed
 
@@ -154,8 +159,8 @@ Copy `.env.example` to `.env` and adjust as needed. Key variables:
 | Variable | Default | Description |
 |---|---|---|
 | `ENSEMBLE_PORT` | `23000` | Server port |
-| `ENSEMBLE_URL` | `http://localhost:23000` | CLI target URL |
-| `ENSEMBLE_DATA_DIR` | `~/.ensemble` | Data directory |
+| `ENSEMBLE_URL` | `http://localhost:<ENSEMBLE_PORT>` | CLI target URL (the server passes it on to its agents) |
+| `ENSEMBLE_DATA_DIR` | `~/.ensemble` | Data directory (team list and one transcript file per team) |
 | `ENSEMBLE_CORS_ORIGIN` | localhost only | Allowed CORS origins |
 | `ENSEMBLE_SHELL` | `pwsh.exe`, then `powershell.exe` | Override the PowerShell executable used for PTY sessions |
 
