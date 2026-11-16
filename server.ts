@@ -1,22 +1,15 @@
 /**
- * Ensemble Server — Standalone HTTP server
- * Lightweight replacement for Next.js API routes.
+ * Ensemble Server — boot file: configuration, runtime, listen. The routes live
+ * in lib/http-routes.ts, the request guard in lib/http-guard.ts.
  */
 
 import http from 'http'
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
-import {
-  createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
-  getTeamFeed, sendTeamMessage, disbandTeam,
-} from './services/ensemble-service'
-import { getRuntime, setRuntime } from './lib/agent-runtime'
+import { setRuntime } from './lib/agent-runtime'
 import { PtyRuntime } from './lib/pty-runtime'
-import { installLogCapture, getLogEntries } from './lib/log-buffer'
+import { installLogCapture } from './lib/log-buffer'
 import { disbandLiveTeamsOnBoot } from './lib/ensemble-registry'
 import { loadAgentsConfig } from './lib/agent-config'
-import { describePrograms } from './lib/programs'
+import { createRequestHandler } from './lib/http-routes'
 
 installLogCapture()
 
@@ -31,9 +24,6 @@ try {
 
 setRuntime(new PtyRuntime())
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const UI_FILE = path.join(__dirname, 'public', 'index.html')
-
 const PORT = parseInt(process.env.ENSEMBLE_PORT || '23000', 10)
 const HOST = process.env.ENSEMBLE_HOST || '127.0.0.1'
 
@@ -41,188 +31,8 @@ const HOST = process.env.ENSEMBLE_HOST || '127.0.0.1'
 // server, so a server on a non-default port or host must tell its own agents where it is.
 const clientHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST.includes(':') ? `[${HOST}]` : HOST
 process.env.ENSEMBLE_URL ??= `http://${clientHost}:${PORT}`
-const DEFAULT_CORS_ORIGIN_PATTERNS = [
-  /^http:\/\/localhost(?::\d+)?$/i,
-  /^http:\/\/127\.0\.0\.1(?::\d+)?$/i,
-  /^http:\/\/\[::1\](?::\d+)?$/i,
-]
 
-function getAllowedCorsOrigins(): string[] {
-  const configured = process.env.ENSEMBLE_CORS_ORIGIN?.trim()
-  if (!configured) return []
-
-  return configured
-    .split(',')
-    .map(origin => origin.trim())
-    .filter(Boolean)
-}
-
-function isAllowedOrigin(origin: string): boolean {
-  const configuredOrigins = getAllowedCorsOrigins()
-  if (configuredOrigins.length > 0) return configuredOrigins.includes(origin)
-  return DEFAULT_CORS_ORIGIN_PATTERNS.some(pattern => pattern.test(origin))
-}
-
-function buildCorsHeaders(origin?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Vary': 'Origin',
-  }
-
-  if (origin && isAllowedOrigin(origin)) {
-    headers['Access-Control-Allow-Origin'] = origin
-  }
-
-  return headers
-}
-
-function json(res: http.ServerResponse, data: unknown, status = 200, origin?: string) {
-  res.writeHead(status, buildCorsHeaders(origin))
-  res.end(JSON.stringify(data))
-}
-
-async function readBody(req: http.IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let body = ''
-    req.on('data', chunk => body += chunk)
-    req.on('end', () => resolve(body))
-    req.on('error', reject)
-  })
-}
-
-const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url || '/', `http://localhost:${PORT}`)
-  const path = url.pathname
-  const method = req.method || 'GET'
-  const origin = req.headers.origin
-
-  if (origin && !isAllowedOrigin(origin)) {
-    return json(res, { error: 'CORS origin forbidden' }, 403, origin)
-  }
-
-  // CORS preflight
-  if (method === 'OPTIONS') {
-    res.writeHead(204, buildCorsHeaders(origin))
-    res.end()
-    return
-  }
-
-  try {
-    // Health check
-    if (path === '/api/v1/health') {
-      return json(res, { status: 'healthy', version: '1.0.0' }, 200, origin)
-    }
-
-    // Programs: the adapter catalog the GUI and CLI build their pickers from
-    if (path === '/api/ensemble/programs' && method === 'GET') {
-      return json(res, describePrograms(), 200, origin)
-    }
-
-    // List teams / Create team
-    if (path === '/api/ensemble/teams') {
-      if (method === 'GET') {
-        const result = listEnsembleTeams()
-        return json(res, result.data, result.status, origin)
-      }
-      if (method === 'POST') {
-        let body: unknown
-        try {
-          body = JSON.parse(await readBody(req))
-        } catch {
-          return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
-        }
-        const result = await createEnsembleTeam(body)
-        if (result.error) return json(res, { error: result.error }, result.status, origin)
-        return json(res, result.data, result.status, origin)
-      }
-    }
-
-    // Team operations: /api/ensemble/teams/:id
-    const teamMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)$/)
-    if (teamMatch) {
-      const teamId = teamMatch[1]
-      if (method === 'GET') {
-        const result = getEnsembleTeam(teamId)
-        if (result.error) return json(res, { error: result.error }, result.status, origin)
-        return json(res, result.data, result.status, origin)
-      }
-      if (method === 'POST') {
-        let body: Record<string, unknown>
-        try {
-          body = JSON.parse(await readBody(req))
-        } catch {
-          return json(res, { error: 'Bad Request: malformed JSON' }, 400, origin)
-        }
-        const result = await sendTeamMessage(teamId, (body.to as string) || 'team', body.content as string, body.from as string, body.id as string, body.timestamp as string)
-        if (result.error) return json(res, { error: result.error }, result.status, origin)
-        return json(res, result.data, result.status, origin)
-      }
-      if (method === 'DELETE') {
-        const result = await disbandTeam(teamId)
-        if (result.error) return json(res, { error: result.error }, result.status, origin)
-        return json(res, result.data, result.status, origin)
-      }
-    }
-
-    // Disband: /api/ensemble/teams/:id/disband
-    const disbandMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/disband$/)
-    if (disbandMatch && method === 'POST') {
-      const result = await disbandTeam(disbandMatch[1])
-      if (result.error) return json(res, { error: result.error }, result.status, origin)
-      return json(res, result.data, result.status, origin)
-    }
-
-    // Feed: /api/ensemble/teams/:id/feed
-    const feedMatch = path.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)
-    if (feedMatch && method === 'GET') {
-      const since = url.searchParams.get('since') || undefined
-      const result = getTeamFeed(feedMatch[1], since)
-      if (result.error) return json(res, { error: result.error }, result.status, origin)
-      return json(res, result.data, result.status, origin)
-    }
-
-    // Live pane: /api/ensemble/sessions/:name/pane?lines=N
-    // The monitoring UI's replacement for attaching a terminal to each agent.
-    const paneMatch = path.match(/^\/api\/ensemble\/sessions\/([^/]+)\/pane$/)
-    if (paneMatch && method === 'GET') {
-      const sessionName = decodeURIComponent(paneMatch[1])
-      const requested = Number(url.searchParams.get('lines'))
-      const lines = Number.isFinite(requested) && requested > 0 ? Math.min(requested, 500) : 60
-      const runtime = getRuntime()
-      const exists = runtime.exists(sessionName)
-      const pane = exists ? runtime.screen(sessionName, lines) : ''
-      return json(res, { session: sessionName, exists, pane }, 200, origin)
-    }
-
-    // Server console stream: /api/ensemble/logs?since=<seq>
-    if (path === '/api/ensemble/logs' && method === 'GET') {
-      const since = Number(url.searchParams.get('since'))
-      return json(res, getLogEntries(Number.isFinite(since) ? since : undefined), 200, origin)
-    }
-
-    // Monitoring UI
-    if ((path === '/' || path === '/index.html') && method === 'GET') {
-      try {
-        const html = fs.readFileSync(UI_FILE)
-        res.writeHead(200, {
-          'Content-Type': 'text/html; charset=utf-8',
-          'Cache-Control': 'no-store',
-        })
-        res.end(html)
-      } catch {
-        json(res, { error: 'UI not found' }, 404, origin)
-      }
-      return
-    }
-
-    json(res, { error: 'Not found' }, 404, origin)
-  } catch (err) {
-    console.error('[Server] Error:', err)
-    json(res, { error: 'Internal server error' }, 500, origin)
-  }
-})
+const server = http.createServer(createRequestHandler({ host: HOST, port: PORT }))
 
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
