@@ -53,16 +53,6 @@ export function collabBridgeLog(teamId: string): string {
   return path.join(RUNTIME_ROOT, teamId, 'bridge.log')
 }
 
-/** Poller process PID file */
-export function collabPollerPid(teamId: string): string {
-  return path.join(RUNTIME_ROOT, teamId, 'poller.pid')
-}
-
-/** Live feed output file */
-export function collabFeedFile(teamId: string): string {
-  return path.join(RUNTIME_ROOT, teamId, 'feed.txt')
-}
-
 /** Per-agent prompt file */
 export function collabPromptFile(teamId: string, agentName: string): string {
   return path.join(RUNTIME_ROOT, teamId, 'prompts', `${agentName}.txt`)
@@ -81,11 +71,6 @@ export function collabBridgeResult(teamId: string): string {
 /** Bridge posted marker */
 export function collabBridgePosted(teamId: string): string {
   return path.join(RUNTIME_ROOT, teamId, 'bridge-posted')
-}
-
-/** Team ID marker file */
-export function collabTeamIdFile(teamId: string): string {
-  return path.join(RUNTIME_ROOT, teamId, 'team-id')
 }
 
 /** Finished marker (written on disband, signals cleanup) */
