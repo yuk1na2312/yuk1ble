@@ -63,10 +63,12 @@ const IDLE_DISBAND_MS = Math.max(
 // Unchanged-screen window that stands in for an unrecognised ready marker.
 const QUIESCENT_READY_MS = 20_000
 const MIN_MESSAGES_BEFORE_AUTO_DISBAND = 10
-// Explicit sentinel: when both agents send this exact marker as a full
-// message, the team auto-disbands immediately — no idle wait, no minimum
+/** Every agent is a PTY with its own CLI process tree; this bounds a runaway request. */
+const MAX_TEAM_SIZE = 8
+// Explicit sentinel: when every agent still active has sent this exact marker
+// as a full message, the team auto-disbands immediately — no idle wait, no minimum
 // message count. Agents are instructed to use it in buildPromptPreview. It is
-// checked on the bus 'message' event, the moment the second one is appended.
+// checked on the bus 'message' event, the moment the last one is appended.
 const EXPLICIT_DONE_SENTINEL = '<<COLLAB_DONE>>'
 
 class EnsembleService {
@@ -119,8 +121,9 @@ class EnsembleService {
         .filter(m => activeNames.has(m.from) && m.content?.trim() === EXPLICIT_DONE_SENTINEL)
         .map(m => m.from),
     )
-    if (sentinelSenders.size < 2) return
-    queueMicrotask(() => { void this.autoDisband(team, `both agents sent ${EXPLICIT_DONE_SENTINEL}`) })
+    // With two agents this is "both"; with N it is every one of them.
+    if (activeNames.size === 0 || sentinelSenders.size < activeNames.size) return
+    queueMicrotask(() => { void this.autoDisband(team, `every active agent sent ${EXPLICIT_DONE_SENTINEL}`) })
   }
 
   /** Disband teams that have gone quiet. Elapsed time is the only condition here, so it is a timer. */
@@ -229,7 +232,8 @@ export function buildPromptPreview(params: {
 }): string {
   const template = loadCollabTemplate(params.templateName)
   const cli = `node "${path.join(REPO_ROOT, 'bin', 'ensemble.cjs')}"`
-  const teamSayCmd = `${cli} team-say ${params.teamId} ${params.agentName} ${params.teammateNames[0] || 'team'}`
+  // `team` reaches every teammate; a teammate's name reaches just that one.
+  const teamSayCmd = `${cli} team-say ${params.teamId} ${params.agentName} team`
   const teamReadCmd = `${cli} team-read ${params.teamId}`
 
   let roleInstructions: string[]
@@ -247,8 +251,8 @@ export function buildPromptPreview(params: {
       ? [
           `ROLE: ${roleName}.`,
           `You own architecture, planning, high-level design, task breakdown, and code review.`,
-          `Your first action after greeting is to share a concrete implementation plan with the worker before any implementation starts.`,
-          `Keep the worker focused by delegating clear implementation steps, reviewing progress, and calling out risks or design corrections early.`,
+          `Your first action after greeting is to share a concrete implementation plan with your teammates before any implementation starts.`,
+          `Keep the workers focused by delegating clear implementation steps, reviewing progress, and calling out risks or design corrections early.`,
         ]
       : [
           `ROLE: ${roleName}.`,
@@ -259,21 +263,21 @@ export function buildPromptPreview(params: {
   }
 
   return [
-    `You are ${params.agentName} in team "${params.teamName}" with teammate ${params.teammateNames.join(', ')}.`,
+    `You are ${params.agentName} in team "${params.teamName}" with teammate${params.teammateNames.length === 1 ? '' : 's'} ${params.teammateNames.join(', ')}.`,
     `Task: ${params.description}`,
     ...roleInstructions,
     `COMMUNICATION RULES:`,
-    `1. Send findings: ${teamSayCmd} "your message"`,
+    `1. Send findings: ${teamSayCmd} "your message" (the recipient "team" reaches every teammate; use a teammate's name instead to message only them)`,
     `2. Read teammate messages: ${teamReadCmd}`,
     `3. After EVERY analysis step, run team-say to share what you found`,
     `4. After EVERY team-say, run team-read to check for responses`,
     `5. If teammate shared findings, RESPOND to them`,
     `6. Keep alternating: analyze, share, read, respond, analyze`,
     `DONE PROTOCOL (important):`,
-    `7. When you believe the task is fully converged and there is nothing substantive left to say, explicitly propose closure to your teammate in a normal team-say message ("I think we're done because X — agree?").`,
-    `8. Only once your teammate has confirmed agreement, send a FINAL team-say whose message is EXACTLY the sentinel <<COLLAB_DONE>> (nothing else, no quotes, no prose). As soon as both teammates have sent <<COLLAB_DONE>>, the system auto-disbands the team and writes the summary — so do not send it prematurely.`,
+    `7. When you believe the task is fully converged and there is nothing substantive left to say, explicitly propose closure to your teammates in a normal team-say message ("I think we're done because X — agree?").`,
+    `8. Only once your teammates have confirmed agreement, send a FINAL team-say whose message is EXACTLY the sentinel <<COLLAB_DONE>> (nothing else, no quotes, no prose). As soon as every agent still active in the team has sent <<COLLAB_DONE>>, the system auto-disbands the team and writes the summary — so do not send it prematurely.`,
     `9. Before sending <<COLLAB_DONE>>, make sure the important conclusions (recommendation, rationale, build list, layout, decisions) are actually present as long team-say messages in the transcript — that is what the summary will preserve. Do not keep insights only in your head.`,
-    `Start NOW: greet your teammate with team-say, then begin.`,
+    `Start NOW: greet your teammates with team-say, then begin.`,
   ].join(' ')
 }
 
@@ -298,6 +302,9 @@ function validateCreateRequest(raw: unknown): string | undefined {
   if (!isNonEmptyString(body.description)) return 'description is required (non-empty string)'
   if (!Array.isArray(body.agents) || body.agents.length < 2) {
     return 'agents must be an array of at least 2 entries — agents collaborate by messaging each other'
+  }
+  if (body.agents.length > MAX_TEAM_SIZE) {
+    return `agents has ${body.agents.length} entries; a team holds at most ${MAX_TEAM_SIZE}`
   }
   for (const [i, agent] of body.agents.entries()) {
     if (typeof agent !== 'object' || agent === null || !isNonEmptyString((agent as { program?: unknown }).program)) {
@@ -572,7 +579,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
         `STAGED WORKFLOW MODE.`,
         `PHASE 1 PLAN: ONLY create and share a plan via team-say.`,
         `Do NOT write code, edit files, or run mutating commands yet.`,
-        `Both agents must share their plan before implementation begins.`,
+        `Every agent must share its plan before implementation begins.`,
         `After sharing your plan, run team-read and align on the execution approach.`,
       ].join(' ')
 

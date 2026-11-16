@@ -43,6 +43,7 @@ describe('POST /api/ensemble/teams', () => {
     ['a model for a program without a catalog', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'plain', model: 'x' }] }), 'this program has no model catalog'],
     ['a non-string model', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'claude', model: 7 }] }), 'agents[1].model must be a non-empty string'],
     ['a blank model', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'claude', model: ' ' }] }), 'agents[1].model must be a non-empty string'],
+    ['more than 8 agents', JSON.stringify({ ...valid, agents: Array.from({ length: 9 }, () => ({ program: 'codex' })) }), 'at most 8'],
     ['an unknown program', JSON.stringify({ ...valid, agents: [{ program: 'codex' }, { program: 'gpt' }] }), 'unknown program "gpt"; available: codex, claude, plain'],
     ['a near-miss program name', JSON.stringify({ ...valid, agents: [{ program: 'claudex' }, { program: 'codex' }] }), 'unknown program "claudex"'],
   ])('%s', (_label, body, expected) => {
@@ -89,6 +90,29 @@ describe('POST /api/ensemble/teams', () => {
     expect(done.team.agents.map(a => a.status)).toEqual(['active', 'active'])
     expect(done.messages.filter(m => m.content.includes('has joined')).map(m => m.seq)).toEqual([1, 2])
   }, 30_000)
+
+  it('starts a team of three with a lead and two workers, named <program>-<n>', async () => {
+    const res = await post(JSON.stringify({
+      ...valid, name: 'trio-team',
+      agents: [{ program: 'codex' }, { program: 'claude' }, { program: 'plain' }],
+    }))
+
+    expect(res.status).toBe(202)
+    const { team } = await res.json() as { team: EnsembleTeam }
+    expect(team.agents.map(a => [a.name, a.role])).toEqual([['codex-1', 'lead'], ['claude-2', 'worker'], ['plain-3', 'worker']])
+    await expect.poll(async () => (await getTeam(team.id)).messages.some(m => m.content.includes('3 agents received their task')), {
+      timeout: 20_000, interval: 250,
+    }).toBe(true)
+  }, 30_000)
+
+  it('accepts eight agents', async () => {
+    const res = await post(JSON.stringify({ ...valid, name: 'octet', agents: Array.from({ length: 8 }, () => ({ program: 'plain' })) }))
+    expect(res.status).toBe(202)
+    const { team } = await res.json() as { team: EnsembleTeam }
+    await expect.poll(async () => (await getTeam(team.id)).messages.some(m => m.content.includes('8 agents received their task')), {
+      timeout: 30_000, interval: 250,
+    }).toBe(true)
+  }, 45_000)
 
   it('records a chosen model on the agent and hands it to the spawner; no model stays absent', async () => {
     server.spawnLocalAgent.mockClear()

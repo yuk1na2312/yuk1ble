@@ -172,7 +172,9 @@ export class StagedWorkflowManager {
     const prompt = (this.options.buildVerifyPrompt || defaultVerifyPrompt)({
       agent,
       teammates,
-      teammateToReview: teammates[0],
+      // Each agent reviews the next one in the ring, so with N agents everyone is reviewed once
+      // (with two agents this is simply the other one).
+      teammateToReview: this.agents[(index + 1) % this.agents.length].name,
       index,
     })
     await this.deliverToAgent(agent, prompt)

@@ -456,6 +456,47 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
   })
 
+  describe('with three agents', () => {
+    const trio = (thirdStatus: 'active' | 'idle' = 'active') => makeTeam({
+      agents: [
+        { agentId: 'a1', name: 'codex-1', program: 'codex', role: 'lead', status: 'active' },
+        { agentId: 'a2', name: 'claude-2', program: 'claude', role: 'worker', status: 'active' },
+        { agentId: 'a3', name: 'codex-3', program: 'codex', role: 'worker', status: thirdStatus },
+      ],
+    })
+    const done = (from: string, at: string) =>
+      makeMessage({ from, teamId: 'team-1', content: '<<COLLAB_DONE>>', timestamp: `2026-03-18T12:04:${at}.000Z` })
+
+    it('waits for the third agent: two sentinels of three do not end the run', async () => {
+      const first = done('codex-1', '10')
+      const second = done('claude-2', '20')
+      const { appendedMessages } = await setupServiceWithMocks(trio(), padConversation([first, second]))
+      await emitSentinelOnBus(second)
+      expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    })
+
+    it('auto-disbands when the third sentinel arrives', async () => {
+      const messages = [done('codex-1', '10'), done('claude-2', '20'), done('codex-3', '30')]
+      const { appendedMessages } = await setupServiceWithMocks(trio(), padConversation(messages))
+      await emitSentinelOnBus(messages[2])
+      expect(appendedMessages.some(m => m.content.includes('Auto-disband: every active agent sent <<COLLAB_DONE>>'))).toBe(true)
+    })
+
+    it('does not wait for an agent that is no longer active', async () => {
+      const messages = [done('codex-1', '10'), done('claude-2', '20')]
+      const { appendedMessages } = await setupServiceWithMocks(trio('idle'), padConversation(messages))
+      await emitSentinelOnBus(messages[1])
+      expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(true)
+    })
+
+    it('does not count one agent twice', async () => {
+      const messages = [done('codex-1', '10'), done('codex-1', '15'), done('claude-2', '20')]
+      const { appendedMessages } = await setupServiceWithMocks(trio(), padConversation(messages))
+      await emitSentinelOnBus(messages[2])
+      expect(appendedMessages.some(m => m.content.includes('Auto-disband'))).toBe(false)
+    })
+  })
+
   it('ignores ensemble messages when determining idle time', async () => {
     const team = makeTeam()
     // The agents went quiet 2h ago; the recent ensemble notice must not count

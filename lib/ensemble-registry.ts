@@ -133,7 +133,7 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
       agentId: '',
       name: `${a.program.toLowerCase().replace(/\s+/g, '-').split('-')[0]}-${i + 1}`,
       program: a.program,
-      role: a.role || (i === 0 ? 'lead' : 'member'),
+      role: a.role || (i === 0 ? 'lead' : 'worker'),
       ...(a.model ? { model: a.model } : {}),
       status: 'spawning' as const,
     })),

@@ -109,4 +109,22 @@ describe('StagedWorkflowManager', () => {
     expect(appended.some(message => message.includes('[Staged/EXEC] Starting EXEC phase'))).toBe(true)
     expect(appended.some(message => message.includes('[Staged/VERIFY] Starting VERIFY phase'))).toBe(true)
   })
+
+  it('has every agent of a larger team review exactly one teammate, in a ring', async () => {
+    const { StagedWorkflowManager } = await import('../lib/staged-workflow')
+    const team = makeTeam()
+    team.agents.push({ agentId: 'a3', name: 'codex-3', program: 'codex', role: 'worker', status: 'active' })
+    const reviews: string[] = []
+
+    await new StagedWorkflowManager({
+      team,
+      config: { planTimeoutMs: 1, execTimeoutMs: 1, verifyTimeoutMs: 0, pollIntervalMs: 0 },
+      sleep: async () => {},
+      buildPlanPrompt: () => 'plan',
+      buildExecPrompt: () => 'exec',
+      buildVerifyPrompt: ({ agent, teammateToReview }) => { reviews.push(`${agent.name}>${teammateToReview}`); return 'verify' },
+    }).run()
+
+    expect(reviews).toEqual(['codex-1>claude-2', 'claude-2>codex-3', 'codex-3>codex-1'])
+  })
 })
