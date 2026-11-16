@@ -14,6 +14,7 @@ import { getRuntime } from './agent-runtime'
 import { getLogEntries } from './log-buffer'
 import { describePrograms } from './programs'
 import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './http-guard'
+import { handleEvents, handleSessionStream } from './sse'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UI_FILE = path.join(__dirname, '..', 'public', 'index.html')
@@ -84,6 +85,17 @@ export function createRequestHandler({ host, port }: RequestHandlerOptions): htt
       const feedMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)
       if (feedMatch && method === 'GET') {
         return reply(getTeamFeed(feedMatch[1], url.searchParams.get('since') || undefined))
+      }
+
+      // Push: team, message and log events, optionally one team's messages only
+      if (pathname === '/api/ensemble/events' && method === 'GET') {
+        return handleEvents(req, res, origin, url.searchParams.get('team') || undefined)
+      }
+
+      // Push: one session's terminal output, replay first then live chunks
+      const streamMatch = pathname.match(/^\/api\/ensemble\/sessions\/([^/]+)\/stream$/)
+      if (streamMatch && method === 'GET') {
+        return handleSessionStream(req, res, origin, decodeURIComponent(streamMatch[1]))
       }
 
       // Live pane: /api/ensemble/sessions/:name/pane?lines=N
