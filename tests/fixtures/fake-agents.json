@@ -1,0 +1,20 @@
+{
+  "fakea": {
+    "command": "node",
+    "flags": ["tests/fixtures/fake-agent.mjs"],
+    "readyMarkers": ["FAKE AGENT READY >"],
+    "inputMethod": "pasteFromFile",
+    "color": "#6aa9ff",
+    "icon": "◆"
+  },
+  "fakeb": {
+    "command": "node",
+    "flags": ["tests/fixtures/fake-agent.mjs"],
+    "readyMarkers": ["FAKE AGENT READY >"],
+    "inputMethod": "pasteFromFile",
+    "modelFlag": "--model",
+    "models": [{ "id": "m1", "label": "Model one" }, { "id": "m2", "label": "Model two" }],
+    "color": "#7ec98f",
+    "icon": "●"
+  }
+}
