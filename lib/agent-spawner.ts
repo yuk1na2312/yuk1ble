@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 import { getRuntime } from './agent-runtime'
 import { buildAgentCommandParts, requireAgentProgram, resolveAgentProgram } from './agent-config'
 import { quotePowerShell } from './win-process'
+import { computeSessionName } from './session-name'
 
 // Kept under its old name for existing callers and tests.
 export { quotePowerShell as shellEscape }
@@ -31,11 +32,6 @@ interface SpawnAgentOptions {
   workingDirectory: string
   /** A catalog model id; absent means no model flag. */
   model?: string
-}
-
-/** Compute a runtime session name from an agent name. */
-function computeSessionName(agentName: string): string {
-  return agentName.replace(/[^a-zA-Z0-9\-_.]/g, '')
 }
 
 /**

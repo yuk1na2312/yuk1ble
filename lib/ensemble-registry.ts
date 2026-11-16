@@ -18,6 +18,7 @@ import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest } from '../types/
 import { getEnsembleRegistryDir, getFeedFile } from './ensemble-paths'
 import { collabMessagesFile } from './collab-paths'
 import { bus } from './bus'
+import { computeSessionName } from './session-name'
 
 const ENSEMBLE_DIR = getEnsembleRegistryDir()
 const TEAMS_FILE = path.join(ENSEMBLE_DIR, 'teams.json')
@@ -156,6 +157,23 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
   markTeamsDirty()
   bus.emit('team', structuredClone(next))
   return structuredClone(next)
+}
+
+/**
+ * Whether `sessionName` is the terminal of an agent of a team that has not been
+ * disbanded. Session names are the team and agent names joined, as the service
+ * builds them, or that string as the spawner sanitizes it for the runtime.
+ */
+export function isLiveTeamSession(sessionName: string): boolean {
+  loadTeamsOnce()
+  for (const team of teams.values()) {
+    if (team.status === 'disbanded') continue
+    for (const agent of team.agents) {
+      const joined = `${team.name}-${agent.name}`
+      if (joined === sessionName || computeSessionName(joined) === sessionName) return true
+    }
+  }
+  return false
 }
 
 /**

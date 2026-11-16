@@ -11,6 +11,7 @@ import {
   getTeamFeed, sendTeamMessage, disbandTeam,
 } from '../services/ensemble-service'
 import { getRuntime } from './agent-runtime'
+import { isLiveTeamSession } from './ensemble-registry'
 import { getLogEntries } from './log-buffer'
 import { describePrograms } from './programs'
 import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './http-guard'
@@ -26,6 +27,46 @@ export interface RequestHandlerOptions {
   /** The address the server is bound to; its name is accepted in the Host header. */
   host: string
   port: number
+}
+
+const INPUT_ROUTE = /^\/api\/ensemble\/sessions\/([^/]+)\/(input|resize)$/
+
+/** Raw keystrokes accepted per request. */
+export const MAX_INPUT_BYTES = 65_536
+const COLS = { min: 20, max: 400 }
+const ROWS = { min: 5, max: 200 }
+
+type RouteResult = { data?: unknown; error?: string; status: number }
+
+/** Runs a runtime call on a session that existed a moment ago; one that has since gone is a 404. */
+function onSession(sessionName: string, run: () => void): RouteResult | undefined {
+  try {
+    run()
+    return undefined
+  } catch {
+    return getRuntime().exists(sessionName)
+      ? { error: 'Could not reach the session', status: 500 }
+      : { error: 'Session not found', status: 404 }
+  }
+}
+
+function writeInput(sessionName: string, body: unknown): RouteResult {
+  const data = (body as { data?: unknown } | null)?.data
+  if (typeof data !== 'string' || data.length === 0) return { error: 'data must be a non-empty string', status: 400 }
+  if (Buffer.byteLength(data, 'utf8') > MAX_INPUT_BYTES) {
+    return { error: `data is larger than ${MAX_INPUT_BYTES} bytes`, status: 413 }
+  }
+  return onSession(sessionName, () => getRuntime().write(sessionName, data)) ?? { data: { ok: true }, status: 200 }
+}
+
+function resizeSession(sessionName: string, body: unknown): RouteResult {
+  const { cols, rows } = (body ?? {}) as { cols?: unknown; rows?: unknown }
+  const within = (value: unknown, range: { min: number; max: number }): value is number =>
+    Number.isInteger(value) && (value as number) >= range.min && (value as number) <= range.max
+  if (!within(cols, COLS) || !within(rows, ROWS)) {
+    return { error: `cols and rows must be integers: cols ${COLS.min}-${COLS.max}, rows ${ROWS.min}-${ROWS.max}`, status: 400 }
+  }
+  return onSession(sessionName, () => getRuntime().resize(sessionName, cols, rows)) ?? { data: { ok: true, cols, rows }, status: 200 }
 }
 
 export function createRequestHandler({ host, port }: RequestHandlerOptions): http.RequestListener {
@@ -96,6 +137,18 @@ export function createRequestHandler({ host, port }: RequestHandlerOptions): htt
       const streamMatch = pathname.match(/^\/api\/ensemble\/sessions\/([^/]+)\/stream$/)
       if (streamMatch && method === 'GET') {
         return handleSessionStream(req, res, origin, decodeURIComponent(streamMatch[1]))
+      }
+
+      // Typing into an agent's terminal: raw input, and the browser terminal's size
+      const inputMatch = pathname.match(INPUT_ROUTE)
+      if (inputMatch && method === 'POST') {
+        const sessionName = decodeURIComponent(inputMatch[1])
+        // Only an agent's terminal of a team still running. Checked before the body is read.
+        if (!isLiveTeamSession(sessionName) || !getRuntime().exists(sessionName)) {
+          return json({ error: 'Session not found' }, 404)
+        }
+        const body = await readJsonBody(req)
+        return reply(inputMatch[2] === 'input' ? writeInput(sessionName, body) : resizeSession(sessionName, body))
       }
 
       // Live pane: /api/ensemble/sessions/:name/pane?lines=N
