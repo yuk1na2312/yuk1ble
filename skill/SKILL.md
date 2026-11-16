@@ -20,7 +20,7 @@ dir; `lib/collab-paths.ts` resolves this as `os.tmpdir()/ensemble`, overridable 
 ## Path Convention
 Runtime artifacts live in `%TEMP%\ensemble\<TEAM_ID>\`:
 - `summary.txt` — written on disband by ensemble-service
-- `prompts/`, `delivery/` — agent prompt/delivery files
+- `prompts/` — what each agent was told at startup (a debugging record)
 - `.finished` — written by ensemble-service AFTER summary.txt
 
 The **transcript is not in that directory.** The server holds it in memory and logs every
@@ -99,7 +99,9 @@ dropping the message.
 ### Step 3: Tell the user where to watch
 
 The user can optionally open the monitoring GUI in a browser: <http://localhost:23000/>
-(teams, transcript, live agent panes, server log). This is optional — Step 4 already
+(teams, transcript, live agent panes, server log). Besides the page, the server pushes the same
+data over Server-Sent Events (`GET /api/ensemble/events`, optionally `?team=<id>`) — for a
+script, the feed polled as above is simpler. This is optional — Step 4 already
 surfaces the conversation inline in this chat.
 
 ### Step 4: Monitoring — the user MUST see the conversation

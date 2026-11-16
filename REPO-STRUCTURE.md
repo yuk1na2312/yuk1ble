@@ -14,7 +14,7 @@ This file records the cut, so nobody has to re-derive it.
 
 ```
 ensemble-win/
-├─ server.ts                    HTTP API on 23000; also serves the GUI at /
+├─ server.ts                    boot file: config, runtime, listen on 23000
 ├─ agents.json                  one adapter per agent CLI: flags, gates, markers, models, colour…
 ├─ collab-templates.json        collaboration presets
 ├─ package.json  tsconfig.json  .eslintrc.json  .gitignore  .env.example
@@ -22,15 +22,20 @@ ensemble-win/
 ├─ cli/
 │  └─ ensemble.ts               CLI (pure HTTP client): status, run, steer, team-say, team-read
 │
-├─ lib/                         17 modules, all reachable from server.ts
-│  ├─ agent-runtime.ts          AgentRuntime interface, getRuntime/setRuntime, sync helpers
-│  ├─ pty-runtime.ts            the only runtime: node-pty sessions, scrollback, tree-kill
+├─ lib/                         modules, all reachable from server.ts
+│  ├─ http-routes.ts            every HTTP route and the GUI at /, behind the guard
+│  ├─ http-guard.ts             Host + Origin checks, body cap, CORS headers, JSON helpers
+│  ├─ sse.ts                    SSE: team/message/log events, per-session terminal stream
+│  ├─ agent-runtime.ts          AgentRuntime interface, getRuntime/setRuntime
+│  ├─ pty-runtime.ts            the only runtime: node-pty sessions, scrollback, listeners, tree-kill
+│  ├─ delivery.ts               deliver(): queue, paste, submit — the one way text reaches an agent
+│  ├─ session-name.ts           the runtime session name of an agent
 │  ├─ pane-readiness.ts         marker match · shell-prompt guard · quiescent-screen fallback
 │  ├─ readiness.ts              waitForReady(): the readiness wait, dependencies injected
 │  ├─ programs.ts               program catalog for GET /api/ensemble/programs
 │  ├─ paste-submit.ts           ensureSubmitted() — a paste alone never submits
 │  ├─ agent-spawner.ts          spawnLocalAgent / killLocalAgent, PowerShell command line
-│  ├─ agent-watchdog.ts         liveness: nudge → stall via sessionExists
+│  ├─ agent-watchdog.ts         liveness: nudge → stall via exists
 │  ├─ agent-config.ts           agents.json loader + validation, program/model resolution
 │  ├─ ensemble-registry.ts      in-memory team + message store; files are a persistence log
 │  ├─ bus.ts                    typed event bus: team, message, log
@@ -38,14 +43,18 @@ ensemble-win/
 │  ├─ collab-paths.ts           %TEMP%\ensemble\<team-id>\… layout
 │  ├─ ensemble-paths.ts         ~/.ensemble data layout
 │  ├─ win-process.ts            tree-kill, PowerShell quoting and PATH lookup, one copy
+│  ├─ prompts.ts                collab templates, startup prompt, the done sentinel
+│  ├─ summary.ts                summary.txt on disband
+│  ├─ messaging.ts              sendTeamMessage: feed first, terminal delivery in the background
+│  ├─ team-supervisor.ts        done sentinel, idle auto-disband, watchdog
 │  ├─ staged-workflow.ts        staged prompt delivery
 │  └─ worktree-manager.ts       per-agent git worktree isolation
 │
-├─ services/ensemble-service.ts main business logic — runtime-agnostic on purpose
+├─ services/ensemble-service.ts team validation, start and disband — runtime-agnostic on purpose
 ├─ types/                       ensemble.ts (teams/messages) · agent-program.ts (agents.json)
 ├─ public/index.html            monitoring GUI: teams, transcript, live PTY panes, server log
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       20 vitest files, 233 tests (+ helpers/, fixtures/)
+├─ tests/                       339 tests / 26 files (+ helpers/, fixtures/)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -66,7 +75,7 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 233 passed / 20 files |
+| `npx vitest run` | 339 passed / 26 files |
 | `npx tsx server.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---
@@ -117,14 +126,16 @@ one name, Claude Code reads the other, both get the same text.
 **Anything outside the server must be a pure HTTP client.** PTY sessions live in a
 module-level `Map` *inside the server process*. Any other process that calls
 `setRuntime(new PtyRuntime())` gets a second, permanently empty registry whose
-`sessionExists`/`capturePane` quietly answer "no such session". Terminal output is reachable
-only over HTTP, via `GET /api/ensemble/sessions/:name/pane`. The same goes for state: team
+`exists`/`screen` quietly answer "no such session". Terminal output is reachable
+only over HTTP: `GET /api/ensemble/sessions/:name/pane` (a text snapshot) or the raw SSE
+stream `…/stream`. The same goes for state: team
 and message data live in the server's memory and the files are only its log, so `team-say`
 is a POST, not a file append, and there is no per-team bridge process.
 
 **`services/ensemble-service.ts` stays runtime-agnostic.** Session behaviour belongs in
-`PtyRuntime` behind the unchanged `AgentRuntime` interface. That seam is the only reason
-this port was a rewrite of one file rather than of the whole codebase.
+`PtyRuntime` behind the `AgentRuntime` interface, and text reaches a terminal only through
+`lib/delivery.ts`. That seam is the only reason this port was a rewrite of one file rather
+than of the whole codebase.
 
 ---
 

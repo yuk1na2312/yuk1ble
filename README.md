@@ -158,6 +158,29 @@ Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post 
 4. **Monitor** — Watch the collaboration unfold in real time in the browser GUI at <http://localhost:23000/>
 5. **Disband** — On the `<<COLLAB_DONE>>` sentinel, a manual disband, or an hour of silence, the run is summarized, persisted, and every agent's process tree is killed
 
+## HTTP API
+
+Everything the CLI and the page do goes through these routes on port 23000. A request whose
+`Host` is not a loopback name is refused (403), so is one naming a foreign `Origin`.
+
+| Route | What it does |
+|---|---|
+| `GET /api/v1/health` | Liveness |
+| `GET /api/ensemble/programs` | The agent CLIs from `agents.json`: icon, colour, models, installed |
+| `GET /api/ensemble/teams`, `GET /api/ensemble/teams/:id` | Teams (and one team's messages) |
+| `GET /api/ensemble/teams/:id/feed?since=<seq>` | Messages after `seq` |
+| `POST /api/ensemble/teams` | Create a team; answers 202, startup continues in the background |
+| `POST /api/ensemble/teams/:id` | Send a message `{ from, to, content }` (`to`: a name or `team`) |
+| `POST /api/ensemble/teams/:id/disband`, `DELETE /api/ensemble/teams/:id` | End a team |
+| `GET /api/ensemble/events[?team=<id>]` | Server-Sent Events: `team`, `message` and `log` as JSON |
+| `GET /api/ensemble/sessions/:name/stream` | Server-Sent Events of one terminal: `replay`, then `data` (base64 raw output), then `exit` |
+| `POST /api/ensemble/sessions/:name/input` | Type into an agent's terminal: `{ "data": "..." }`, at most 64 KB |
+| `POST /api/ensemble/sessions/:name/resize` | `{ "cols": 120, "rows": 40 }` |
+| `GET /api/ensemble/sessions/:name/pane?lines=N` | A text snapshot of a terminal |
+| `GET /api/ensemble/logs?since=<seq>` | The server's console output |
+
+Watch a team from a shell: `curl.exe -N http://localhost:23000/api/ensemble/events`.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and adjust as needed. Key variables:
