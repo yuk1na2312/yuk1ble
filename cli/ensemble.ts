@@ -102,20 +102,20 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
 }
 
 /**
- * Post a message to the server, which records it and pastes it into the
- * recipient's terminal. Agents rely on the exact "Sent to <recipient>" line, and
+ * Post a message to the server, which records it and delivers it to the
+ * recipient's terminal in the background. Agents rely on the exact "Sent to <recipient>" line, and
  * on a non-zero exit when the message did not go out (server down, unknown team).
  */
 async function cmdTeamSay(teamId: string, from: string, to: string, content: string): Promise<void> {
   const endpoint = `${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}`
   let response: Response
   try {
-    // Generous: the server answers once the message is pasted into the recipient's terminal.
+    // The server answers as soon as the message is in the feed; pasting it into the terminal goes on behind.
     response = await fetchWithTimeout(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ from, to, content }),
-    }, 60_000)
+    }, 15_000)
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error)
     console.error(`team-say failed: cannot reach the ensemble server at ${API_BASE} (${reason}). Is it running? (npm run dev)`)

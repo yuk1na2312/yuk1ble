@@ -680,20 +680,37 @@ export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ mes
  * interleave their pastes in the composer. Different sessions run in parallel.
  */
 const sessionQueues = new Map<string, Promise<void>>()
+/** Deliveries waiting (or running) per session. Bounded: an agent looping on team-say cannot grow the queue without limit. */
+const pendingDeliveries = new Map<string, number>()
+const MAX_PENDING_DELIVERIES = 50
 
 function runExclusive(sessionName: string, task: () => Promise<void>): Promise<void> {
+  pendingDeliveries.set(sessionName, (pendingDeliveries.get(sessionName) ?? 0) + 1)
   const run = (sessionQueues.get(sessionName) ?? Promise.resolve()).then(task)
   const tail = run.catch(() => {}).then(() => {
+    const left = (pendingDeliveries.get(sessionName) ?? 1) - 1
+    if (left > 0) pendingDeliveries.set(sessionName, left)
+    else pendingDeliveries.delete(sessionName)
     if (sessionQueues.get(sessionName) === tail) sessionQueues.delete(sessionName)
   })
   sessionQueues.set(sessionName, tail)
   return run
 }
 
+export interface SendMessageResult extends ServiceResult<{ message: EnsembleMessage }> {
+  /**
+   * Settles when the message has been pasted into every recipient's terminal and
+   * submitted. The HTTP route does not wait for it: the message is in the feed
+   * before the response, and delivery carries on through the per-session queue.
+   * Never rejects; a failed delivery is written to the feed. Tests await it.
+   */
+  delivery?: Promise<void>
+}
+
 export async function sendTeamMessage(
   teamId: string, to: string, content: string, from?: string,
   existingId?: string, existingTimestamp?: string,
-): Promise<ServiceResult<{ message: EnsembleMessage }>> {
+): Promise<SendMessageResult> {
   const team = getTeam(teamId)
   if (!team) return { error: 'Team not found', status: 404 }
   if (typeof content !== 'string' || !content.trim()) return { error: 'content is required', status: 400 }
@@ -712,8 +729,19 @@ export async function sendTeamMessage(
 
   const runtime = getRuntime()
 
-  await Promise.all(recipients.map(targetAgent => {
+  const note = (text: string): void => {
+    appendMessage(teamId, {
+      id: randomUUID(), teamId, from: 'ensemble', to: 'team', content: text,
+      type: 'chat', timestamp: new Date().toISOString(),
+    })
+  }
+
+  const delivery = Promise.all(recipients.map(targetAgent => {
     const sessionName = `${team.name}-${targetAgent.name}`
+    if ((pendingDeliveries.get(sessionName) ?? 0) >= MAX_PENDING_DELIVERIES) {
+      note(`❌ Delivery to ${targetAgent.name} dropped: ${MAX_PENDING_DELIVERIES} messages are already waiting for its terminal`)
+      return Promise.resolve()
+    }
     return runExclusive(sessionName, async () => {
       try {
         // Skip delivery if the agent's terminal session no longer exists (agent finished and exited)
@@ -735,16 +763,14 @@ export async function sendTeamMessage(
         await ensureSubmitted(runtime, sessionName, resolveAgentProgram(targetAgent.program)?.pasteMarker)
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
-        appendMessage(teamId, {
-          id: randomUUID(), teamId, from: 'ensemble', to: 'team',
-          content: `❌ Delivery to ${targetAgent.name} failed: ${reason}`,
-          type: 'chat', timestamp: new Date().toISOString(),
-        })
+        note(`❌ Delivery to ${targetAgent.name} failed: ${reason}`)
       }
     })
-  }))
+  })).then(() => undefined, err => {
+    console.error(`[Ensemble] Message delivery for ${teamId} failed unexpectedly:`, err)
+  })
 
-  return { data: { message }, status: 200 }
+  return { data: { message }, status: 200, delivery }
 }
 
 /**

@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { execFile } from 'child_process'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { bootServer, freeClosedPort } from './helpers/boot-server'
 
 const CLI = path.resolve(process.cwd(), 'cli/ensemble.ts')
@@ -58,9 +58,29 @@ describe('team-say over HTTP', () => {
     expect(feed.messages).toHaveLength(1)
     expect(feed.messages[0]).toMatchObject({ from: 'codex-1', to: 'claude-2', content: 'hello "world" & <you>', seq: 1 })
 
-    // Delivery goes through pasteFromFile (the paste + Enter path), one session only.
-    expect(server.runtime.pasteFromFile).toHaveBeenCalledTimes(1)
+    // Delivery goes through pasteFromFile (the paste + Enter path), one session only,
+    // and carries on in the background after the CLI has its answer.
+    await vi.waitFor(() => expect(server.runtime.pasteFromFile).toHaveBeenCalledTimes(1))
     expect(server.runtime.pasteFromFile.mock.calls[0][0]).toBe('say-team-claude-2')
+  })
+
+  it('answers as soon as the message is in the feed, before it has been pasted into the terminal', async () => {
+    let release!: () => void
+    const gate = new Promise<void>(resolve => { release = resolve })
+    server.runtime.pasteFromFile.mockImplementationOnce(async () => { await gate })
+
+    const startedAt = Date.now()
+    const res = await fetch(`${server.baseUrl}/api/ensemble/teams/${teamId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'codex-1', to: 'claude-2', content: 'not blocked by the paste' }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(Date.now() - startedAt).toBeLessThan(1000)
+    const feed = await (await fetch(`${server.baseUrl}/api/ensemble/teams/${teamId}/feed`)).json() as { messages: Array<{ content: string }> }
+    expect(feed.messages.some(m => m.content === 'not blocked by the paste')).toBe(true)
+    release()
   })
 
   it('records a well-formed message: v4 id, recent ISO timestamp, type chat, unique per message', async () => {
