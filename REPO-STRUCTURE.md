@@ -15,27 +15,29 @@ This file records the cut, so nobody has to re-derive it.
 ```
 ensemble-win/
 ├─ server.ts                    HTTP API on 23000; also serves the GUI at /
-├─ agents.json                  per-agent command/flags/readyMarker(s)/inputMethod/icon
+├─ agents.json                  one adapter per agent CLI: flags, gates, markers, models, colour…
 ├─ collab-templates.json        collaboration presets
 ├─ package.json  tsconfig.json  .eslintrc.json  .gitignore  .env.example
 │
 ├─ cli/
 │  └─ ensemble.ts               CLI (pure HTTP client): status, run, steer, team-say, team-read
 │
-├─ lib/                         15 modules, all reachable from server.ts
+├─ lib/                         17 modules, all reachable from server.ts
 │  ├─ agent-runtime.ts          AgentRuntime interface, getRuntime/setRuntime, sync helpers
 │  ├─ pty-runtime.ts            the only runtime: node-pty sessions, scrollback, tree-kill
 │  ├─ pane-readiness.ts         marker match · shell-prompt guard · quiescent-screen fallback
+│  ├─ readiness.ts              waitForReady(): the readiness wait, dependencies injected
+│  ├─ programs.ts               program catalog for GET /api/ensemble/programs
 │  ├─ paste-submit.ts           ensureSubmitted() — a paste alone never submits
 │  ├─ agent-spawner.ts          spawnLocalAgent / killLocalAgent, PowerShell command line
 │  ├─ agent-watchdog.ts         liveness: nudge → stall via sessionExists
-│  ├─ agent-config.ts           agents.json loader + program/marker resolution
+│  ├─ agent-config.ts           agents.json loader + validation, program/model resolution
 │  ├─ ensemble-registry.ts      in-memory team + message store; files are a persistence log
 │  ├─ bus.ts                    typed event bus: team, message, log
 │  ├─ log-buffer.ts             tees console.* into a ring buffer for the GUI log pane
 │  ├─ collab-paths.ts           %TEMP%\ensemble\<team-id>\… layout
 │  ├─ ensemble-paths.ts         ~/.ensemble data layout
-│  ├─ win-process.ts            tree-kill and PowerShell quoting, one copy
+│  ├─ win-process.ts            tree-kill, PowerShell quoting and PATH lookup, one copy
 │  ├─ staged-workflow.ts        staged prompt delivery
 │  └─ worktree-manager.ts       per-agent git worktree isolation
 │
@@ -43,7 +45,7 @@ ensemble-win/
 ├─ types/                       ensemble.ts (teams/messages) · agent-program.ts (agents.json)
 ├─ public/index.html            monitoring GUI: teams, transcript, live PTY panes, server log
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       15 vitest files, 122 tests (+ helpers/boot-server.ts)
+├─ tests/                       20 vitest files, 233 tests (+ helpers/, fixtures/)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -64,7 +66,7 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 122 passed / 15 files |
+| `npx vitest run` | 233 passed / 20 files |
 | `npx tsx server.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---

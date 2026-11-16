@@ -57,15 +57,21 @@ $result = Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Me
 $TEAM_ID = $result.team.id
 ```
 
-`program` must be a key in `agents.json`: `claude`, `codex`, `aider`, `gemini`, or
-`opencode`.
+`program` must be a key in `agents.json` (`GET /api/ensemble/programs` lists them with
+their models and whether the CLI is installed; by default `claude`, `codex`, `aider`,
+`gemini` and `opencode`). An unknown program is a 400 (`unknown program "x"; available:
+...`); nothing falls back to another CLI. A team holds 2 to 8 agents: the first is the lead,
+the rest are workers. To choose a model per agent add `model` (for example
+`@{ program = "codex"; model = "gpt-5.6-sol" }`); it must be in that program's catalog or the
+call is a 400. Leave it out to use the CLI's own default.
 
 The call answers **202** with the team record as soon as it exists — it does not wait for
 the agents. Spawning them, waiting for their CLIs to reach a prompt (up to
 `ENSEMBLE_READY_TIMEOUT_MS`, 150 s by default) and injecting the task continue in the
 background and report through the team status and the feed (`ensemble` messages such as
 "has joined", "collaboration started" or "Team start aborted"). A malformed request
-(fewer than 2 agents, a missing `program`, no name or description) is a **400** with the
+(fewer than 2 or more than 8 agents, a missing or unknown `program`, a model outside the
+program's catalog, no name or description) is a **400** with the
 reason in `error`.
 
 ### Step 2: Confirm the agents came up
@@ -85,7 +91,8 @@ Good: `... has joined #<team>` for each agent, then `collaboration started`. Bad
 why and stop).
 
 Messages between agents need nothing running besides the server: `team-say` POSTs to it,
-and it records the message and pastes it into the other agent's terminal. If the server
+and it records the message, answers at once and pastes it into the recipient's terminal in
+the background (recipient `team` reaches every other agent). If the server
 dies, the agents die with it and `team-say` fails with an error instead of silently
 dropping the message.
 
@@ -147,7 +154,7 @@ user, there is nothing left to wait for.
 
 **When done**, cleanup is fully automatic: the server tears down the agent sessions and
 writes `summary.txt` itself (auto-disband, `disbandTeam` in
-`services/ensemble-service.ts`), as soon as both agents have sent `<<COLLAB_DONE>>`, when
+`services/ensemble-service.ts`), as soon as every agent still active has sent `<<COLLAB_DONE>>`, when
 the user disbands, or after an hour of silence. Nothing needs to be killed manually.
 
 ## Important Notes

@@ -2,7 +2,7 @@
 
 **Multi-agent collaboration engine** — AI agents that work as one.
 
-Ensemble orchestrates AI agents into collaborative teams. Out of the box it pairs **Claude Code + Codex** — they communicate, share findings, and solve problems together in real time. Agent processes run in native Windows ConPTY sessions, and a browser GUI shows the collaboration live.
+Ensemble orchestrates AI agents into collaborative teams. Out of the box it pairs **Claude Code + Codex** (teams of 2 to 8 agents are supported) — they communicate, share findings, and solve problems together in real time. Agent processes run in native Windows ConPTY sessions, and a browser GUI shows the collaboration live.
 
 > **Status:** Experimental developer tool. Native Windows only.
 
@@ -109,7 +109,7 @@ The default team is **Claude Code (lead) + Codex (worker)**. This is the tested,
 | **Claude Code + Codex** | Fully tested | Default — just run `/collab` or `npm run cli -- run "..."` |
 | **Gemini CLI** | Experimental | Add explicitly (see below) |
 | **Aider** | Untested | Add explicitly (see below) |
-| **Any CLI tool** | Via `agents.json` | Add an entry with `command`, `flags`, `readyMarker`(s), `inputMethod` |
+| **Any CLI tool** | Via `agents.json` | Add an entry with `command`, `readyMarkers`, `inputMethod`, `color`, `icon` (and optionally flags, startup gates, models); no code change. See *Adding a CLI* in [AGENTS.md](AGENTS.md) |
 
 ### Using a different team composition
 
@@ -122,9 +122,15 @@ Three ways to change which agents are on your team:
 
 **2. Use the `--agents` flag with `ensemble run`:**
 ```powershell
-# First agent = lead, rest = workers
+# First agent = lead, rest = workers; 2 to 8 agents
 npm run cli -- run "Security audit" --agents codex,claude,gemini
+
+# Pick a model per agent with program:model (it must be in that program's catalog)
+npm run cli -- run "Security audit" --agents codex:gpt-5.6-sol,claude:sonnet
 ```
+
+An unknown program or model is a 400 and nothing is started. `GET /api/ensemble/programs`
+lists each program with its icon, colour, models and whether its CLI is installed.
 
 **3. Specify agents in the API call:**
 ```powershell
@@ -148,7 +154,7 @@ Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post 
 
 1. **Create a team** — Define agents and their task via API or CLI
 2. **Agents spawn** — The API answers 202 immediately and the rest happens in the background. Each agent is started in its own native Windows PTY session (`PtyRuntime`, via `node-pty`) with the task prompt
-3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `cli/ensemble.ts`). `team-say` POSTs to the server, which records the message and pastes it into the recipient's terminal; `team-read` reads the feed. If the server is down, `team-say` prints an error and exits non-zero
+3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `cli/ensemble.ts`). `team-say` POSTs to the server, which records the message and answers at once, then pastes it into the recipient's terminal in the background (`team` as recipient reaches everyone); `team-read` reads the feed. If the server is down, `team-say` prints an error and exits non-zero
 4. **Monitor** — Watch the collaboration unfold in real time in the browser GUI at <http://localhost:23000/>
 5. **Disband** — On the `<<COLLAB_DONE>>` sentinel, a manual disband, or an hour of silence, the run is summarized, persisted, and every agent's process tree is killed
 
