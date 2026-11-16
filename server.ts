@@ -21,32 +21,13 @@ setRuntime(new PtyRuntime())
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const UI_FILE = path.join(__dirname, 'public', 'index.html')
 
-const PORT = parseInt(process.env.ENSEMBLE_PORT || process.env.ORCHESTRA_PORT || '23000', 10)
+const PORT = parseInt(process.env.ENSEMBLE_PORT || '23000', 10)
 const HOST = process.env.ENSEMBLE_HOST || '127.0.0.1'
-const RATE_LIMIT_WINDOW_MS = 60_000
-const RATE_LIMIT_MAX_REQUESTS = 100
 const DEFAULT_CORS_ORIGIN_PATTERNS = [
   /^http:\/\/localhost(?::\d+)?$/i,
   /^http:\/\/127\.0\.0\.1(?::\d+)?$/i,
   /^http:\/\/\[::1\](?::\d+)?$/i,
 ]
-
-type RateLimitEntry = {
-  count: number
-  windowStart: number
-}
-
-const rateLimitByIp = new Map<string, RateLimitEntry>()
-
-// Periodic cleanup of stale rate limit entries to prevent unbounded Map growth
-setInterval(() => {
-  const now = Date.now()
-  for (const [ip, entry] of rateLimitByIp) {
-    if (now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
-      rateLimitByIp.delete(ip)
-    }
-  }
-}, 60_000)
 
 function getAllowedCorsOrigins(): string[] {
   const configured = process.env.ENSEMBLE_CORS_ORIGIN?.trim()
@@ -93,29 +74,6 @@ async function readBody(req: http.IncomingMessage): Promise<string> {
   })
 }
 
-function getClientIp(req: http.IncomingMessage): string {
-  const forwardedFor = req.headers['x-forwarded-for']
-  if (typeof forwardedFor === 'string') {
-    const firstIp = forwardedFor.split(',')[0]?.trim()
-    if (firstIp) return firstIp
-  }
-
-  return req.socket.remoteAddress || 'unknown'
-}
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now()
-  const current = rateLimitByIp.get(ip)
-
-  if (!current || now - current.windowStart >= RATE_LIMIT_WINDOW_MS) {
-    rateLimitByIp.set(ip, { count: 1, windowStart: now })
-    return false
-  }
-
-  current.count += 1
-  return current.count > RATE_LIMIT_MAX_REQUESTS
-}
-
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://localhost:${PORT}`)
   const path = url.pathname
@@ -134,15 +92,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    // Health check — always exempt from rate limiting
+    // Health check
     if (path === '/api/v1/health') {
       return json(res, { status: 'healthy', version: '1.0.0' }, 200, origin)
-    }
-
-    // Internal ensemble API routes are exempt from rate limiting
-    const isInternalEnsembleApi = path.startsWith('/api/ensemble/')
-    if (!isInternalEnsembleApi && isRateLimited(getClientIp(req))) {
-      return json(res, { error: 'Rate limit exceeded' }, 429, origin)
     }
 
     // List teams / Create team
