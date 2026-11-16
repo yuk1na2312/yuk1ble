@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import type { AgentRuntime } from './agent-runtime'
 import { ensureSubmitted } from './paste-submit'
 import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
@@ -132,7 +132,7 @@ export class AgentWatchdog {
 
       console.warn(`[Watchdog] Agent ${agent.name} in team ${team.id} stalled after watchdog nudge`)
       this.deps.appendMessage(team.id, {
-        id: uuidv4(),
+        id: randomUUID(),
         teamId: team.id,
         from: 'ensemble',
         to: 'team',
@@ -167,7 +167,7 @@ export class AgentWatchdog {
     // appending this before the send (as before) left a false "nudged" message
     // in the team feed on every failed attempt, on top of the failure message.
     this.deps.appendMessage(team.id, {
-      id: uuidv4(),
+      id: randomUUID(),
       teamId: team.id,
       from: 'ensemble',
       to: 'team',
@@ -217,7 +217,7 @@ export class AgentWatchdog {
     if (sessionGone) {
       console.warn(`[Watchdog] Agent ${agentName} in team ${team.id} session no longer exists; marking stalled`)
       this.deps.appendMessage(team.id, {
-        id: uuidv4(),
+        id: randomUUID(),
         teamId: team.id,
         from: 'ensemble',
         to: 'team',
@@ -230,7 +230,7 @@ export class AgentWatchdog {
     }
 
     this.deps.appendMessage(team.id, {
-      id: uuidv4(),
+      id: randomUUID(),
       teamId: team.id,
       from: 'ensemble',
       to: 'team',

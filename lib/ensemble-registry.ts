@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import os from 'os'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest } from '../types/ensemble'
 import { getEnsembleRegistryDir } from './ensemble-paths'
 import { collabMessagesFile } from './collab-paths'
@@ -104,7 +104,7 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
   return withTeamsLock(() => {
     const teams = readTeamsFile()
     const team: EnsembleTeam = {
-      id: uuidv4(),
+      id: randomUUID(),
       name: request.name,
       description: request.description,
       status: 'forming',

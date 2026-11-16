@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import type {
   EnsembleTeam,
   EnsembleTeamAgent,
@@ -249,7 +249,7 @@ export class StagedWorkflowManager {
 
   private log(phase: 'plan' | 'exec' | 'verify', content: string): void {
     appendMessage(this.options.team.id, {
-      id: uuidv4(),
+      id: randomUUID(),
       teamId: this.options.team.id,
       from: 'ensemble',
       to: 'team',

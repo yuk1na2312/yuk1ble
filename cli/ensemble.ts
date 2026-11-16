@@ -14,7 +14,7 @@ import fs from 'fs'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import path from 'path'
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import { setRuntime } from '../lib/agent-runtime'
 import { PtyRuntime } from '../lib/pty-runtime'
 import { acquireFileLock } from '../lib/ensemble-registry'
@@ -121,7 +121,7 @@ function cmdTeamSay(teamId: string, from: string, to: string, content: string): 
   ensureCollabDirs(teamId)
   const messagesFile = collabMessagesFile(teamId)
   const message: EnsembleMessage = {
-    id: uuidv4(),
+    id: randomUUID(),
     teamId,
     from,
     to,

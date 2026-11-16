@@ -4,7 +4,7 @@
  * Uses agent-spawner.ts for local agent lifecycle.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, CollabTemplatesFile } from '../types/ensemble'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
@@ -385,7 +385,7 @@ class EnsembleService {
 
       try {
         appendMessage(team.id, {
-          id: uuidv4(),
+          id: randomUUID(),
           teamId: team.id,
           from: 'ensemble',
           to: 'team',
@@ -557,7 +557,7 @@ export async function createEnsembleTeam(
         team.agents[i].worktreePath = worktreeInfo.path
         team.agents[i].worktreeBranch = worktreeInfo.branch
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
           content: `🌳 Worktree created for ${agentSpec.name}: ${worktreeInfo.branch}`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -565,7 +565,7 @@ export async function createEnsembleTeam(
         const message = err instanceof Error ? err.message : String(err)
         console.error(`[Ensemble] Failed to create worktree for ${agentSpec.name}:`, message)
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
           content: `⚠️ Worktree creation failed for ${agentSpec.name}: ${message}. Using shared directory.`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -610,7 +610,7 @@ export async function createEnsembleTeam(
       team.agents[i].status = 'active'
 
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `${agentSpec.name} (${agentSpec.program}) has joined #${team.name}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -619,7 +619,7 @@ export async function createEnsembleTeam(
       console.error(`[Ensemble] Failed to spawn ${agentName}:`, message)
       team.agents[i].status = 'idle'
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `Failed to spawn ${agentName}: ${message}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -771,7 +771,7 @@ export async function createEnsembleTeam(
     for (const nr of notReady) {
       console.warn(`[Ensemble] ${nr.sessionName} did not signal ready in time — attempting prompt injection anyway`)
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `⚠ ${nr.agent.name} did not signal ready in time — injecting prompt anyway (best-effort)`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -787,7 +787,7 @@ export async function createEnsembleTeam(
     for (const { result } of liveness.filter(entry => !entry.alive)) {
       console.error(`[Ensemble] ${result.sessionName} has no live session — skipping prompt injection`)
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `❌ ${result.agent.name} exited before it could be prompted — its CLI never reached an input prompt`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -795,7 +795,7 @@ export async function createEnsembleTeam(
     const injectTargets = liveness.filter(entry => entry.alive).map(entry => entry.result)
     if (injectTargets.length === 0) {
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `❌ Team start aborted: no agents available for prompt injection`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -813,7 +813,7 @@ export async function createEnsembleTeam(
     if (request.staged) {
       // Staged mode: skip normal prompt injection, run plan→exec→verify workflow
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `🚀 ${injectTargets.length}/${activeAgents.length} agents — starting staged workflow (plan → exec → verify)`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -849,7 +849,7 @@ export async function createEnsembleTeam(
         const message = err instanceof Error ? err.message : String(err)
         console.error(`[Ensemble] Staged workflow failed for ${team.id}:`, message)
         appendMessage(team.id, {
-          id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+          id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
           content: `❌ Staged workflow failed: ${message}`,
           type: 'chat', timestamp: new Date().toISOString(),
         })
@@ -873,7 +873,7 @@ export async function createEnsembleTeam(
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             appendMessage(team.id, {
-              id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+              id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
               content: `❌ Delivery to ${agent.name} failed: ${message}`,
               type: 'chat', timestamp: new Date().toISOString(),
             })
@@ -883,7 +883,7 @@ export async function createEnsembleTeam(
       )
 
       appendMessage(team.id, {
-        id: uuidv4(), teamId: team.id, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId: team.id, from: 'ensemble', to: 'team',
         content: `🚀 ${injectTargets.length} agents received their task — collaboration started${notReady.length ? ` (${notReady.length} via best-effort fallback)` : ''}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -921,7 +921,7 @@ export async function sendTeamMessage(
   if (!team) return { error: 'Team not found', status: 404 }
 
   const message: EnsembleMessage = {
-    id: existingId || uuidv4(), teamId, from: from || 'user', to, content,
+    id: existingId || randomUUID(), teamId, from: from || 'user', to, content,
     type: 'chat', timestamp: existingTimestamp || new Date().toISOString(),
   }
   appendMessage(teamId, message)
@@ -958,7 +958,7 @@ export async function sendTeamMessage(
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err)
       appendMessage(teamId, {
-        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId, from: 'ensemble', to: 'team',
         content: `❌ Delivery to ${targetAgent.name} failed: ${reason}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -1039,7 +1039,7 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
   for (const agent of team.agents) {
     if (agent.status === 'active') {
       appendMessage(teamId, {
-        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId, from: 'ensemble', to: 'team',
         content: `${agent.name} has left #${team.name}`,
         type: 'chat', timestamp: new Date().toISOString(),
       })
@@ -1069,7 +1069,7 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
       const result = await mergeWorktree(worktreeInfo, basePath)
 
       appendMessage(teamId, {
-        id: uuidv4(), teamId, from: 'ensemble', to: 'team',
+        id: randomUUID(), teamId, from: 'ensemble', to: 'team',
         content: result.success
           ? `🌳 Merged ${agent.name}'s worktree (${agent.worktreeBranch})`
           : `⚠️ Merge conflict for ${agent.name}: ${result.conflicts?.join(', ')}`,

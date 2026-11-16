@@ -4,7 +4,7 @@
  * Handles: runtime session creation, program launching, and session cleanup.
  */
 
-import { v4 as uuidv4 } from 'uuid'
+import { randomUUID } from 'crypto'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { getRuntime } from './agent-runtime'
@@ -100,7 +100,7 @@ export function resolveStartCommand(program: string, cwd: string): string {
  */
 export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<SpawnedAgent> {
   const runtime = getRuntime()
-  const agentId = uuidv4()
+  const agentId = randomUUID()
   const sessionName = computeSessionName(options.name)
   const cwd = options.workingDirectory || process.cwd()
 
