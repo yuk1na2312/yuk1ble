@@ -16,7 +16,7 @@ import {
 } from '../lib/agent-spawner'
 import { getRuntime } from '../lib/agent-runtime'
 import { getFeedFile } from '../lib/ensemble-paths'
-import { ensureSubmitted } from '../lib/paste-submit'
+import { deliver, deliverStrict, MAX_PENDING_DELIVERIES } from '../lib/delivery'
 import { resolveAgentProgram, resolveReadyMarkers, listProgramNames, resolveAgentModels, isValidModel } from '../lib/agent-config'
 import { waitForReady as waitForReadyScreen } from '../lib/readiness'
 import { AgentWatchdog } from '../lib/agent-watchdog'
@@ -617,13 +617,10 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
           const promptFile = collabPromptFile(team.id, agent.name)
           try {
             const agentCfg = resolveAgentProgram(agent.program)
-            const prompt = fs.readFileSync(promptFile, 'utf-8')
-            if (agentCfg?.inputMethod === 'pasteFromFile') {
-              runtime.paste(sessionName, prompt)
-            } else {
-              runtime.sendKeys(sessionName, prompt, { literal: true, enter: true })
-            }
-            await ensureSubmitted(runtime, sessionName, agentCfg?.pasteMarker)
+            await deliverStrict(sessionName, fs.readFileSync(promptFile, 'utf-8'), {
+              inputMethod: agentCfg?.inputMethod,
+              pasteMarker: agentCfg?.pasteMarker,
+            })
             console.log(`[Ensemble] ✓ Prompt injected into ${sessionName}`)
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
@@ -673,28 +670,6 @@ export function getTeamFeed(teamId: string, since?: string): ServiceResult<{ mes
   return { data: { messages: getMessages(teamId, since) }, status: 200 }
 }
 
-/**
- * Deliveries to one session run one at a time. Two messages for the same agent
- * (a teammate and the GUI, say) would otherwise interleave their pastes in the composer. Different sessions run in parallel.
- */
-const sessionQueues = new Map<string, Promise<void>>()
-/** Deliveries waiting (or running) per session. Bounded: an agent looping on team-say cannot grow the queue without limit. */
-const pendingDeliveries = new Map<string, number>()
-const MAX_PENDING_DELIVERIES = 50
-
-function runExclusive(sessionName: string, task: () => Promise<void>): Promise<void> {
-  pendingDeliveries.set(sessionName, (pendingDeliveries.get(sessionName) ?? 0) + 1)
-  const run = (sessionQueues.get(sessionName) ?? Promise.resolve()).then(task)
-  const tail = run.catch(() => {}).then(() => {
-    const left = (pendingDeliveries.get(sessionName) ?? 1) - 1
-    if (left > 0) pendingDeliveries.set(sessionName, left)
-    else pendingDeliveries.delete(sessionName)
-    if (sessionQueues.get(sessionName) === tail) sessionQueues.delete(sessionName)
-  })
-  sessionQueues.set(sessionName, tail)
-  return run
-}
-
 export interface SendMessageResult extends ServiceResult<{ message: EnsembleMessage }> {
   /**
    * Settles when the message has been pasted into every recipient's terminal and
@@ -725,8 +700,6 @@ export async function sendTeamMessage(
     ? team.agents.filter(a => a.status === 'active' && a.name !== sender)
     : team.agents.filter(a => a.status === 'active' && a.name === to)
 
-  const runtime = getRuntime()
-
   const note = (text: string): void => {
     appendMessage(teamId, {
       id: randomUUID(), teamId, from: 'ensemble', to: 'team', content: text,
@@ -734,32 +707,26 @@ export async function sendTeamMessage(
     })
   }
 
-  const delivery = Promise.all(recipients.map(targetAgent => {
+  // Wrap the message with sender context + a response nudge
+  const deliveryText = [
+    `[Team message from ${sender}]: ${content}`,
+    `→ Respond with team-say. Then run team-read to check for more messages.`,
+  ].join('\n')
+
+  const delivery = Promise.all(recipients.map(async targetAgent => {
     const sessionName = `${team.name}-${targetAgent.name}`
-    if ((pendingDeliveries.get(sessionName) ?? 0) >= MAX_PENDING_DELIVERIES) {
-      note(`❌ Delivery to ${targetAgent.name} dropped: ${MAX_PENDING_DELIVERIES} messages are already waiting for its terminal`)
-      return Promise.resolve()
-    }
-    return runExclusive(sessionName, async () => {
-      try {
-        // Skip delivery if the agent's terminal session no longer exists (agent finished and exited)
-        if (!runtime.exists(sessionName)) return
-
-        // Wrap message with sender context + response nudge
-        const deliveryText = [
-          `[Team message from ${sender}]: ${content}`,
-          `→ Respond with team-say. Then run team-read to check for more messages.`,
-        ].join('\n')
-
-        // Always paste for message delivery to avoid shell escaping
-        // issues (typed input breaks on ?, !, `, $ and \ in PowerShell)
-        runtime.paste(sessionName, deliveryText)
-        await ensureSubmitted(runtime, sessionName, resolveAgentProgram(targetAgent.program)?.pasteMarker)
-      } catch (err) {
-        const reason = err instanceof Error ? err.message : String(err)
-        note(`❌ Delivery to ${targetAgent.name} failed: ${reason}`)
+    try {
+      // No inputMethod: messages are always pasted, never typed. A session that is gone (agent finished) is skipped.
+      const outcome = await deliver(sessionName, deliveryText, {
+        pasteMarker: resolveAgentProgram(targetAgent.program)?.pasteMarker,
+      })
+      if (outcome === 'dropped') {
+        note(`❌ Delivery to ${targetAgent.name} dropped: ${MAX_PENDING_DELIVERIES} messages are already waiting for its terminal`)
       }
-    })
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err)
+      note(`❌ Delivery to ${targetAgent.name} failed: ${reason}`)
+    }
   })).then(() => undefined, err => {
     console.error(`[Ensemble] Message delivery for ${teamId} failed unexpectedly:`, err)
   })

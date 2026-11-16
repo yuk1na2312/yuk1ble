@@ -5,7 +5,7 @@ import type {
   StagedWorkflowConfig,
 } from '../types/ensemble'
 import { appendMessage, getMessages } from './ensemble-registry'
-import { getRuntime } from './agent-runtime'
+import { deliverStrict } from './delivery'
 import { resolveAgentProgram } from './agent-config'
 
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000
@@ -179,15 +179,12 @@ export class StagedWorkflowManager {
 
   private async deliverToAgent(agent: ActiveAgent, text: string): Promise<void> {
     const sessionName = `${this.options.team.name}-${agent.name}`
-    const runtime = getRuntime()
-
     const agentCfg = resolveAgentProgram(agent.program)
-    if (agentCfg?.inputMethod === 'pasteFromFile') {
-      runtime.paste(sessionName, text)
-      return
-    }
-
-    runtime.sendKeys(sessionName, text, { literal: true, enter: true })
+    // Through the shared delivery path: a prompt that is pasted and never submitted is a silent agent.
+    await deliverStrict(sessionName, text, {
+      inputMethod: agentCfg?.inputMethod,
+      pasteMarker: agentCfg?.pasteMarker,
+    })
   }
 
   private resetCursor(): void {

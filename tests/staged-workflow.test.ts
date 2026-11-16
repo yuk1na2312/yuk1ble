@@ -29,6 +29,18 @@ function makeTeam(): EnsembleTeam {
   }
 }
 
+/** Every prompt is followed by the 1.5 s submit check, so run the workflow on a clock that skips those waits. */
+async function runOnFakeClock(run: () => Promise<void>): Promise<void> {
+  vi.useFakeTimers({ toFake: ['setTimeout'] })
+  try {
+    const done = run()
+    await vi.advanceTimersByTimeAsync(60_000)
+    await done
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
 describe('StagedWorkflowManager', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -67,6 +79,8 @@ describe('StagedWorkflowManager', () => {
           delivered.push({ session, text })
         }),
         paste: vi.fn(() => {}),
+        exists: vi.fn(() => true),
+        screen: vi.fn(() => '> '),
       })),
     }))
     vi.doMock('../lib/agent-config', () => ({
@@ -92,7 +106,7 @@ describe('StagedWorkflowManager', () => {
       buildVerifyPrompt: ({ agent, teammateToReview }) => `VERIFY ${agent.name} reviews ${teammateToReview}`,
     })
 
-    await manager.run()
+    await runOnFakeClock(() => manager.run())
 
     expect(delivered.map(entry => entry.text)).toEqual([
       'PLAN for codex-1',
@@ -107,20 +121,60 @@ describe('StagedWorkflowManager', () => {
     expect(appended.some(message => message.includes('[Staged/VERIFY] Starting VERIFY phase'))).toBe(true)
   })
 
+  it('submits every staged prompt: a prompt left parked in the composer is a silent agent', async () => {
+    const pastes: string[] = []
+    const enters: string[] = []
+    const typed: string[] = []
+    // The composer holds a parked paste until an Enter has been sent for it.
+    const runtime = {
+      paste: vi.fn((session: string) => { pastes.push(session) }),
+      sendKeys: vi.fn((session: string, keys: string, opts?: { literal?: boolean }) => {
+        if (keys === 'Enter' && !opts?.literal) enters.push(session)
+        else typed.push(session)
+      }),
+      exists: vi.fn(() => true),
+      screen: vi.fn((session: string) =>
+        pastes.filter(s => s === session).length > enters.filter(s => s === session).length
+          ? '› [Pasted Content 1929 chars]'
+          : '› '),
+    }
+    vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
+    vi.doMock('../lib/agent-config', () => ({
+      resolveAgentProgram: vi.fn(() => ({ inputMethod: 'pasteFromFile' })),
+    }))
+    const { StagedWorkflowManager } = await import('../lib/staged-workflow')
+    const manager = new StagedWorkflowManager({
+      team: makeTeam(),
+      config: { planTimeoutMs: 1, execTimeoutMs: 1, verifyTimeoutMs: 0, pollIntervalMs: 0 },
+      sleep: async () => {},
+      buildPlanPrompt: () => 'plan',
+      buildExecPrompt: () => 'exec',
+      buildVerifyPrompt: () => 'verify',
+    })
+
+    await runOnFakeClock(() => manager.run())
+
+    // Three phases, two agents: six pastes, and one Enter for each.
+    expect(pastes).toHaveLength(6)
+    expect(enters).toHaveLength(6)
+    expect(typed).toEqual([])
+  })
+
   it('has every agent of a larger team review exactly one teammate, in a ring', async () => {
     const { StagedWorkflowManager } = await import('../lib/staged-workflow')
     const team = makeTeam()
     team.agents.push({ agentId: 'a3', name: 'codex-3', program: 'codex', role: 'worker', status: 'active' })
     const reviews: string[] = []
 
-    await new StagedWorkflowManager({
+    const ring = new StagedWorkflowManager({
       team,
       config: { planTimeoutMs: 1, execTimeoutMs: 1, verifyTimeoutMs: 0, pollIntervalMs: 0 },
       sleep: async () => {},
       buildPlanPrompt: () => 'plan',
       buildExecPrompt: () => 'exec',
       buildVerifyPrompt: ({ agent, teammateToReview }) => { reviews.push(`${agent.name}>${teammateToReview}`); return 'verify' },
-    }).run()
+    })
+    await runOnFakeClock(() => ring.run())
 
     expect(reviews).toEqual(['codex-1>claude-2', 'claude-2>codex-3', 'codex-3>codex-1'])
   })

@@ -177,14 +177,13 @@ describe('AgentWatchdog', () => {
     // to spam a "failed to nudge" message every 30s tick forever, and never
     // transition the agent to stalled, because the catch path never set
     // `nudgedAt`.
-    paste.mockImplementation(() => { throw new Error('PTY session not found') })
     exists.mockReturnValue(false)
 
     const watchdog = createWatchdog()
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    // First tick past the nudge threshold: nudge is attempted, paste
-    // throws, exists confirms the session is gone -> stalled immediately.
+    // First tick past the nudge threshold: nudge is attempted, delivery finds
+    // the session gone (and writes nothing) -> stalled immediately.
     await watchdog.poll()
     nowMs += 91_000
     await watchdog.poll()
@@ -203,7 +202,7 @@ describe('AgentWatchdog', () => {
       await watchdog.poll()
     }
 
-    expect(paste).toHaveBeenCalledTimes(1)
+    expect(paste).not.toHaveBeenCalled()
     expect(appended).toHaveLength(1)
     watchdog.stop()
   })

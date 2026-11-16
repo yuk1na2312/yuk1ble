@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import type { AgentRuntime } from './agent-runtime'
-import { ensureSubmitted } from './paste-submit'
+import { deliverStrict } from './delivery'
 import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
@@ -151,11 +151,12 @@ export class AgentWatchdog {
 
   private async nudgeAgent(team: EnsembleTeam, agentName: string, program: string): Promise<void> {
     const sessionName = `${team.name}-${agentName}`
-    // Always paste to avoid shell escaping issues with sendKeys
-    const runtime = this.deps.getRuntime()
-    runtime.paste(sessionName, WATCHDOG_NUDGE_TEXT)
-    // A pasted nudge parks in the composer just like any other paste.
-    await ensureSubmitted(runtime, sessionName, this.deps.resolveAgentProgram(program)?.pasteMarker)
+    // Always pasted (no inputMethod) to avoid shell escaping issues with sendKeys; a pasted
+    // nudge parks in the composer just like any other paste, so delivery submits it too.
+    await deliverStrict(sessionName, WATCHDOG_NUDGE_TEXT, {
+      runtime: this.deps.getRuntime(),
+      pasteMarker: this.deps.resolveAgentProgram(program)?.pasteMarker,
+    })
 
     // Only report the nudge as having happened once it actually succeeded —
     // appending this before the send (as before) left a false "nudged" message
