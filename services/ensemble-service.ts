@@ -25,6 +25,7 @@ import { runStagedWorkflow } from '../lib/staged-workflow'
 import { buildPromptPreview } from '../lib/prompts'
 import { writeDisbandSummary } from '../lib/summary'
 import { TeamSupervisor } from '../lib/team-supervisor'
+import { agentNameFor, agentSessionName, computeSessionName, sanitizeSessionPart } from '../lib/session-name'
 
 // The pieces that used to live here; callers and tests keep importing them from the service.
 export { loadCollabTemplate, buildPromptPreview } from '../lib/prompts'
@@ -42,6 +43,8 @@ const READY_TIMEOUT_MS = Math.max(
 )
 // Unchanged-screen window that stands in for an unrecognised ready marker.
 const QUIESCENT_READY_MS = 20_000
+/** Longest team name accepted. */
+const MAX_TEAM_NAME_LENGTH = 64
 /** Every agent is a PTY with its own CLI process tree; this bounds a runaway request. */
 const MAX_TEAM_SIZE = 8
 
@@ -63,6 +66,10 @@ function validateCreateRequest(raw: unknown): string | undefined {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return 'Request body must be a JSON object'
   const body = raw as Record<string, unknown>
   if (!isNonEmptyString(body.name)) return 'name is required (non-empty string)'
+  if (body.name.trim().length > MAX_TEAM_NAME_LENGTH) return `name is longer than ${MAX_TEAM_NAME_LENGTH} characters`
+  if (sanitizeSessionPart(body.name).length === 0) {
+    return 'name must contain at least one letter, digit, dash, underscore or dot: terminal sessions are named after it'
+  }
   if (!isNonEmptyString(body.description)) return 'description is required (non-empty string)'
   if (!Array.isArray(body.agents) || body.agents.length < 2) {
     return 'agents must be an array of at least 2 entries — agents collaborate by messaging each other'
@@ -102,11 +109,25 @@ function validateCreateRequest(raw: unknown): string | undefined {
  * injecting the task continue in the background, reporting through the team's
  * status and its feed.
  */
+/** The session name a new team would share with a team that is still running, if any. */
+function findSessionNameCollision(request: CreateTeamRequest): string | undefined {
+  const inUse = new Set<string>()
+  for (const team of loadTeams()) {
+    if (team.status === 'disbanded') continue
+    for (const agent of team.agents) inUse.add(agentSessionName(team, agent))
+  }
+  return request.agents
+    .map((agent, i) => computeSessionName(request.name, agentNameFor(agent.program, i)))
+    .find(name => inUse.has(name))
+}
+
 export async function createEnsembleTeam(raw: unknown): Promise<CreateTeamResult> {
   const invalid = validateCreateRequest(raw)
   if (invalid) return { error: `Bad Request: ${invalid}`, status: 400 }
 
   const request = raw as CreateTeamRequest
+  const taken = findSessionNameCollision(request)
+  if (taken) return { error: `Bad Request: a running team already uses the terminal name "${taken}"; choose a different team name`, status: 400 }
   const team = createTeam(request)
   const snapshot = structuredClone(team) // startup mutates `team` as it goes
 
@@ -190,7 +211,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
   // Phase 1: Spawn all agents
   for (let i = 0; i < team.agents.length; i++) {
     const agentSpec = team.agents[i]
-    const agentName = `${team.name}-${agentSpec.name}`
+    const agentName = agentSessionName(team, agentSpec)
     if (teamWasDisbanded()) {
       console.log(`[Ensemble] Team ${team.id} was disbanded during startup — not spawning ${agentName}`)
       return
@@ -207,7 +228,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
 
       const agentCwd = worktreeMap.get(agentSpec.name)?.path || cwd
       const spawned = await spawnLocalAgent({
-        name: agentName,
+        sessionName: agentName,
         program: agentSpec.program,
         workingDirectory: agentCwd,
         model: agentSpec.model,
@@ -271,7 +292,7 @@ async function startTeam(team: EnsembleTeam, request: CreateTeamRequest): Promis
     console.log(`[Ensemble] Waiting for all ${activeAgents.length} agents to be ready...`)
     const readyResults = await Promise.all(
       activeAgents.map(agent => {
-        const sessionName = `${team.name}-${agent.name}`
+        const sessionName = agentSessionName(team, agent)
         return waitForReady(sessionName, agent.program).then(ready => ({ agent, sessionName, ready }))
       })
     )
@@ -451,7 +472,7 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
       })
 
       try {
-        await killLocalAgent(`${team.name}-${agent.name}`)
+        await killLocalAgent(agentSessionName(team, agent))
       } catch { /* session may already be gone */ }
     }
   }

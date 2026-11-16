@@ -28,7 +28,7 @@ describe('team startup in the background', () => {
   const request = { name: 'bg', description: 'task', agents: [{ program: 'codex' }, { program: 'claude' }], workingDirectory: os.tmpdir() }
 
   async function setup(options: {
-    spawn?: (args: { name: string }) => Promise<{ id: string }>
+    spawn?: (args: { sessionName: string }) => Promise<{ id: string }>
     getRuntime?: () => unknown
   } = {}) {
     const killLocalAgent = vi.fn(async () => {})
@@ -40,7 +40,7 @@ describe('team startup in the background', () => {
       onData: vi.fn(() => () => {}),
     }
     vi.doMock('../lib/agent-spawner', () => ({
-      spawnLocalAgent: vi.fn(options.spawn ?? (async ({ name }: { name: string }) => ({ id: `${name}-id` }))),
+      spawnLocalAgent: vi.fn(options.spawn ?? (async ({ sessionName }: { sessionName: string }) => ({ id: `${sessionName}-id` }))),
       killLocalAgent,
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
@@ -72,7 +72,7 @@ describe('team startup in the background', () => {
 
   it('reports each failed spawn and an aborted start when fewer than two agents come up', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { store, service } = await setup({ spawn: async ({ name }) => { throw new Error(`no binary for ${name}`) } })
+    const { store, service } = await setup({ spawn: async ({ sessionName }) => { throw new Error(`no binary for ${sessionName}`) } })
 
     const result = await service.createEnsembleTeam(request)
     await result.completion
@@ -91,7 +91,7 @@ describe('team startup in the background', () => {
     const gate = new Promise<void>(resolve => { release = resolve })
     const spawnedNames: string[] = []
     const { store, service, killLocalAgent } = await setup({
-      spawn: async ({ name }) => { spawnedNames.push(name); await gate; return { id: `${name}-id` } },
+      spawn: async ({ sessionName }) => { spawnedNames.push(sessionName); await gate; return { id: `${sessionName}-id` } },
     })
 
     const result = await service.createEnsembleTeam(request)
@@ -107,5 +107,30 @@ describe('team startup in the background', () => {
     expect(killLocalAgent).toHaveBeenCalledTimes(1)
     expect(killLocalAgent).toHaveBeenCalledWith('bg-codex-1')
     expect(spawnedNames).toEqual(['bg-codex-1'])
+  })
+  it('a team name with a space reaches readiness and delivery under the same session name the spawner used', { timeout: 20_000 }, async () => {
+    const live = new Set<string>()
+    const missed: string[] = []
+    const delivered: string[] = []
+    const known = (session: string): boolean => live.has(session) || (missed.push(session), false)
+    const runtime = {
+      screen: vi.fn((session: string) => (known(session) ? '>' : '')),
+      sendKeys: vi.fn((session: string) => { if (known(session)) delivered.push(session) }),
+      paste: vi.fn(() => {}),
+      exists: vi.fn((session: string) => known(session)),
+      onData: vi.fn(() => () => {}),
+    }
+    const { service } = await setup({
+      getRuntime: () => runtime,
+      spawn: async ({ sessionName }) => { live.add(sessionName); return { id: sessionName } },
+    })
+
+    const result = await service.createEnsembleTeam({ ...request, name: 'my team' })
+    expect(result.status).toBe(202)
+    await result.completion
+
+    expect([...live]).toEqual(['myteam-codex-1', 'myteam-claude-2'])
+    expect(missed).toEqual([])
+    expect(delivered.filter(session => live.has(session)).length).toBeGreaterThanOrEqual(2)
   })
 })

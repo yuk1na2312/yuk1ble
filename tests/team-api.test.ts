@@ -30,6 +30,9 @@ describe('POST /api/ensemble/teams', () => {
     ['JSON null', 'null', 'JSON object'],
     ['a JSON array', '[]', 'JSON object'],
     ['an empty object', '{}', 'name is required'],
+    ['a blank name', JSON.stringify({ ...valid, name: '   ' }), 'name is required'],
+    ['a name over 64 characters', JSON.stringify({ ...valid, name: 'n'.repeat(65) }), 'longer than 64'],
+    ['a name that sanitizes to nothing', JSON.stringify({ ...valid, name: '!! ?? 日本' }), 'at least one letter'],
     ['no description', JSON.stringify({ ...valid, description: '' }), 'description is required'],
     ['agents missing', JSON.stringify({ name: 'x', description: 'y' }), 'at least 2'],
     ['agents not an array', JSON.stringify({ ...valid, agents: 'codex,claude' }), 'at least 2'],
@@ -64,9 +67,9 @@ describe('POST /api/ensemble/teams', () => {
   it('answers 202 with the team while agents are still being spawned, then reports progress through status and feed', async () => {
     let release!: () => void
     const gate = new Promise<void>(resolve => { release = resolve })
-    server.spawnLocalAgent.mockImplementation(async ({ name }) => {
+    server.spawnLocalAgent.mockImplementation(async ({ sessionName }) => {
       await gate
-      return { id: `${name}-id` }
+      return { id: `${sessionName}-id` }
     })
 
     const res = await post(JSON.stringify({ ...valid, name: 'slow-team' }))
@@ -116,7 +119,7 @@ describe('POST /api/ensemble/teams', () => {
 
   it('records a chosen model on the agent and hands it to the spawner; no model stays absent', async () => {
     server.spawnLocalAgent.mockClear()
-    server.spawnLocalAgent.mockImplementation(async ({ name }) => ({ id: `${name}-id` }))
+    server.spawnLocalAgent.mockImplementation(async ({ sessionName }) => ({ id: `${sessionName}-id` }))
 
     const res = await post(JSON.stringify({
       ...valid, name: 'model-team',
@@ -128,8 +131,31 @@ describe('POST /api/ensemble/teams', () => {
     expect(team.agents[0]).toMatchObject({ name: 'codex-1', model: 'gpt-5.6-sol' })
     expect('model' in team.agents[1]).toBe(false)
     await expect.poll(() => server.spawnLocalAgent.mock.calls.length, { timeout: 5000 }).toBe(2)
-    const spawned = server.spawnLocalAgent.mock.calls.map(c => c[0] as unknown as { name: string; model?: string })
-    expect(spawned.map(s => [s.name, s.model])).toEqual([['model-team-codex-1', 'gpt-5.6-sol'], ['model-team-claude-2', undefined]])
+    const spawned = server.spawnLocalAgent.mock.calls.map(c => c[0] as unknown as { sessionName: string; model?: string })
+    expect(spawned.map(s => [s.sessionName, s.model])).toEqual([['model-team-codex-1', 'gpt-5.6-sol'], ['model-team-claude-2', undefined]])
     expect((await getTeam(team.id)).team.agents[0].model).toBe('gpt-5.6-sol')
   }, 30_000)
+
+  it('names terminals from one function: a team name with a space works, and its agents carry the session name', async () => {
+    server.spawnLocalAgent.mockClear()
+    const res = await post(JSON.stringify({ ...valid, name: 'my team' }))
+
+    expect(res.status).toBe(202)
+    const { team } = await res.json() as { team: EnsembleTeam }
+    expect(team.agents.map(a => a.sessionName)).toEqual(['myteam-codex-1', 'myteam-claude-2'])
+    await expect.poll(() => server.spawnLocalAgent.mock.calls.length, { timeout: 5000 }).toBe(2)
+    expect(server.spawnLocalAgent.mock.calls.map(c => (c[0] as unknown as { sessionName: string }).sessionName))
+      .toEqual(['myteam-codex-1', 'myteam-claude-2'])
+    // Input is addressed by that name and reaches the (fake) runtime.
+    const input = await fetch(`${server.baseUrl}/api/ensemble/sessions/myteam-codex-1/input`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data: 'x' }),
+    })
+    expect(input.status).toBe(200)
+  }, 30_000)
+
+  it('refuses a team whose terminals would share a name with a running team', async () => {
+    const same = await post(JSON.stringify({ ...valid, name: 'my  team' })) // sanitizes to the same "myteam"
+    expect(same.status).toBe(400)
+    expect((await same.json() as { error: string }).error).toContain('already uses the terminal name "myteam-codex-1"')
+  })
 })

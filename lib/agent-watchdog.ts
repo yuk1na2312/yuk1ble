@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import type { AgentRuntime } from './agent-runtime'
 import { deliverStrict } from './delivery'
+import { agentSessionName } from './session-name'
 import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
@@ -150,7 +151,7 @@ export class AgentWatchdog {
   }
 
   private async nudgeAgent(team: EnsembleTeam, agentName: string, program: string): Promise<void> {
-    const sessionName = `${team.name}-${agentName}`
+    const sessionName = agentSessionName(team, { name: agentName })
     // Always pasted (no inputMethod) to avoid shell escaping issues with sendKeys; a pasted
     // nudge parks in the composer just like any other paste, so delivery submits it too.
     await deliverStrict(sessionName, WATCHDOG_NUDGE_TEXT, {
@@ -195,7 +196,7 @@ export class AgentWatchdog {
   ): Promise<void> {
     const reason = err instanceof Error ? err.message : String(err)
     const iso = new Date(nowMs).toISOString()
-    const sessionName = `${team.name}-${agentName}`
+    const sessionName = agentSessionName(team, { name: agentName })
 
     // Prefer asking the runtime whether the session still exists over
     // string-matching the error message — paste/sendKeys error text

@@ -18,7 +18,7 @@ import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest } from '../types/
 import { getEnsembleRegistryDir, getFeedFile } from './ensemble-paths'
 import { collabMessagesFile } from './collab-paths'
 import { bus } from './bus'
-import { computeSessionName } from './session-name'
+import { agentNameFor, agentSessionName, computeSessionName } from './session-name'
 
 const ENSEMBLE_DIR = getEnsembleRegistryDir()
 const TEAMS_FILE = path.join(ENSEMBLE_DIR, 'teams.json')
@@ -66,7 +66,11 @@ function loadTeamsOnce(): void {
   try {
     const parsed: unknown = JSON.parse(fs.readFileSync(TEAMS_FILE, 'utf-8'))
     if (!Array.isArray(parsed)) throw new Error('teams.json is not an array')
-    for (const team of parsed as EnsembleTeam[]) teams.set(team.id, team)
+    for (const team of parsed as EnsembleTeam[]) {
+      // Records from before the field existed get it here, so every API response carries it.
+      for (const agent of team.agents ?? []) agent.sessionName ??= agentSessionName(team, agent)
+      teams.set(team.id, team)
+    }
   } catch (err) {
     // Keep the unreadable file for inspection instead of overwriting it with [].
     const aside = `${TEAMS_FILE}.corrupt-${Date.now()}`
@@ -132,7 +136,8 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
     status: 'forming',
     agents: request.agents.map((a, i) => ({
       agentId: '',
-      name: `${a.program.toLowerCase().replace(/\s+/g, '-').split('-')[0]}-${i + 1}`,
+      name: agentNameFor(a.program, i),
+      sessionName: computeSessionName(request.name, agentNameFor(a.program, i)),
       program: a.program,
       role: a.role || (i === 0 ? 'lead' : 'worker'),
       ...(a.model ? { model: a.model } : {}),
@@ -161,16 +166,14 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
 
 /**
  * Whether `sessionName` is the terminal of an agent of a team that has not been
- * disbanded. Session names are the team and agent names joined, as the service
- * builds them, or that string as the spawner sanitizes it for the runtime.
+ * disbanded.
  */
 export function isLiveTeamSession(sessionName: string): boolean {
   loadTeamsOnce()
   for (const team of teams.values()) {
     if (team.status === 'disbanded') continue
     for (const agent of team.agents) {
-      const joined = `${team.name}-${agent.name}`
-      if (joined === sessionName || computeSessionName(joined) === sessionName) return true
+      if (agentSessionName(team, agent) === sessionName) return true
     }
   }
   return false

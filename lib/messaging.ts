@@ -7,6 +7,7 @@ import type { EnsembleMessage, ServiceResult } from '../types/ensemble'
 import { getTeam, appendMessage } from './ensemble-registry'
 import { deliver, MAX_PENDING_DELIVERIES } from './delivery'
 import { resolveAgentProgram } from './agent-config'
+import { agentSessionName } from './session-name'
 
 export interface SendMessageResult extends ServiceResult<{ message: EnsembleMessage }> {
   /**
@@ -52,7 +53,7 @@ export async function sendTeamMessage(
   ].join('\n')
 
   const delivery = Promise.all(recipients.map(async targetAgent => {
-    const sessionName = `${team.name}-${targetAgent.name}`
+    const sessionName = agentSessionName(team, targetAgent)
     try {
       // No inputMethod: messages are always pasted, never typed. A session that is gone (agent finished) is skipped.
       const outcome = await deliver(sessionName, deliveryText, {

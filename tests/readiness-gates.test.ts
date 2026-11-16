@@ -159,7 +159,7 @@ describe('startup gate auto-confirm', () => {
       createTeam: vi.fn(() => team),
       getTeam: vi.fn(() => team),
       updateTeam: vi.fn(() => team),
-      loadTeams: vi.fn(() => [team]),
+      loadTeams: vi.fn(() => []),
       appendMessage: vi.fn(),
       getMessages: vi.fn(() => []),
     }))

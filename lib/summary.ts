@@ -6,6 +6,7 @@ import fs from 'fs'
 import path from 'path'
 import { getTeam, getMessages } from './ensemble-registry'
 import { getAgentTokenUsage } from './agent-spawner'
+import { agentSessionName } from './session-name'
 import { getFeedFile } from './ensemble-paths'
 import { collabSummaryFile, scrubCollabRuntimePaths } from './collab-paths'
 import { EXPLICIT_DONE_SENTINEL } from './prompts'
@@ -43,7 +44,7 @@ export async function writeDisbandSummary(teamId: string): Promise<void> {
     team.agents
       .filter(a => a.status === 'active')
       .map(async (agent) => {
-        const sessionName = `${team.name}-${agent.name}`
+        const sessionName = agentSessionName(team, agent)
         tokenUsageMap[agent.name] = await getAgentTokenUsage(sessionName, agent.program)
       })
   )

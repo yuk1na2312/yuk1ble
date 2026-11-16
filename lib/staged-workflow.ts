@@ -7,6 +7,7 @@ import type {
 import { appendMessage, getMessages } from './ensemble-registry'
 import { deliverStrict } from './delivery'
 import { resolveAgentProgram } from './agent-config'
+import { agentSessionName } from './session-name'
 
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000
 const DEFAULT_EXEC_TIMEOUT_MS = 300_000
@@ -178,7 +179,7 @@ export class StagedWorkflowManager {
   }
 
   private async deliverToAgent(agent: ActiveAgent, text: string): Promise<void> {
-    const sessionName = `${this.options.team.name}-${agent.name}`
+    const sessionName = agentSessionName(this.options.team, agent)
     const agentCfg = resolveAgentProgram(agent.program)
     // Through the shared delivery path: a prompt that is pasted and never submitted is a silent agent.
     await deliverStrict(sessionName, text, {

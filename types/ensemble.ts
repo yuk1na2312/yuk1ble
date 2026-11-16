@@ -21,6 +21,8 @@ export interface EnsembleTeam {
 export interface EnsembleTeamAgent {
   agentId: string
   name: string
+  /** The runtime session of this agent's terminal (lib/session-name.ts); what the session routes are addressed by. */
+  sessionName?: string
   program: string
   role: string
   /** Model requested at creation. Absent means no model flag was passed: the CLI used its own default. */

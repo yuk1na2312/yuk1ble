@@ -10,7 +10,6 @@ import { fileURLToPath } from 'url'
 import { getRuntime } from './agent-runtime'
 import { buildAgentCommandParts, requireAgentProgram, resolveAgentProgram } from './agent-config'
 import { quotePowerShell } from './win-process'
-import { computeSessionName } from './session-name'
 
 // Kept under its old name for existing callers and tests.
 export { quotePowerShell as shellEscape }
@@ -27,7 +26,8 @@ export interface SpawnedAgent {
 }
 
 interface SpawnAgentOptions {
-  name: string
+  /** The runtime session name, from computeSessionName(); used as given. */
+  sessionName: string
   program: string
   workingDirectory: string
   /** A catalog model id; absent means no model flag. */
@@ -101,7 +101,7 @@ export function resolveStartCommand(program: string, cwd: string, model?: string
 export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<SpawnedAgent> {
   const runtime = getRuntime()
   const agentId = randomUUID()
-  const sessionName = computeSessionName(options.name)
+  const { sessionName } = options
   const cwd = options.workingDirectory || process.cwd()
 
   // Create the runtime session.
@@ -115,11 +115,11 @@ export async function spawnLocalAgent(options: SpawnAgentOptions): Promise<Spawn
 
   runtime.sendKeys(sessionName, startCommand, { literal: true, enter: true })
 
-  console.log(`[Spawner] Agent ${options.name} started in runtime session ${sessionName}`)
+  console.log(`[Spawner] Agent started in runtime session ${sessionName}`)
 
   return {
     id: agentId,
-    name: options.name,
+    name: sessionName,
     program: options.program,
     sessionName,
     workingDirectory: cwd,

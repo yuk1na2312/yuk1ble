@@ -80,7 +80,7 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
     },
     listenerCount: countListeners,
   }
-  const spawnLocalAgent = vi.fn(async ({ name }: { name: string }) => ({ id: `${name}-id` }))
+  const spawnLocalAgent = vi.fn(async ({ sessionName }: { sessionName: string }) => ({ id: `${sessionName}-id` }))
 
   options.seed?.(tempRoot)
 
