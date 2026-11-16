@@ -85,13 +85,9 @@ unreachable for three consecutive 30s health checks. Disband tree-kills it as a 
 
 ### Step 3: Tell the user where to watch
 
-The user can optionally open a second terminal (Windows Terminal) for the live TUI
-monitor:
-```powershell
-npm run monitor                                          # most recently active team
-node "__ENSEMBLE_DIR__\bin\ensemble.cjs" monitor "<TEAM_ID>"   # this specific team
-```
-This is optional — Step 4 already surfaces the conversation inline in this chat.
+The user can optionally open the monitoring GUI in a browser: <http://localhost:23000/>
+(teams, transcript, live agent panes, server log). This is optional — Step 4 already
+surfaces the conversation inline in this chat.
 
 ### Step 4: Monitoring — the user MUST see the conversation
 

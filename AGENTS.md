@@ -2,7 +2,7 @@
 
 Persistent project context for AI coding agents (Claude Code, Codex, …). Read this at the
 start of every session. `CLAUDE.md` imports this file — there is deliberately only one
-copy. Port history and the acceptance criteria live in `docs/windows-port/`.
+copy.
 
 ---
 
@@ -10,7 +10,7 @@ copy. Port history and the acceptance criteria live in `docs/windows-port/`.
 
 **ensemble** — a multi-agent collaboration engine. It spawns AI agent CLIs (`claude`,
 `codex`, `aider`, `gemini`) into terminal sessions, lets them message each other over a
-structured bus, and shows the collaboration live in a browser GUI and a TUI monitor.
+structured bus, and shows the collaboration live in a browser GUI.
 An HTTP API + CLI drive everything.
 
 This repo is a **native-Windows-only fork** of [michelhelsdingen/ensemble](https://github.com/michelhelsdingen/ensemble),
@@ -27,9 +27,7 @@ has been removed rather than gated.
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
 live PTY panes, teardown kills the full process tree. `npm run typecheck`, `npm run lint`
-and `npm test` (96 tests / 9 files) are green. What remains is repeated real-world use —
-see `TESTING.md` for the run-through and `docs/windows-port/status.md` for what each past
-live run exposed.
+and `npm test` (95 tests / 9 files) are green. What remains is repeated real-world use.
 
 ---
 
@@ -39,8 +37,7 @@ live run exposed.
 server.ts                 HTTP API entrypoint (port 23000) + serves the GUI at /
 public/index.html         monitoring GUI (teams, transcript, live panes, server log)
 cli/
-  ensemble.ts             CLI entrypoint (status, run, steer, team-say, team-read)
-  monitor.ts              live TUI monitor — a pure HTTP client, never a runtime owner
+  ensemble.ts             CLI entrypoint (status, run, steer, team-say, team-read, bridge)
 lib/
   agent-runtime.ts        AgentRuntime interface + getRuntime/setRuntime + sync helpers
   pty-runtime.ts          the only runtime: node-pty sessions, scrollback, tree-kill
@@ -51,15 +48,17 @@ lib/
   agent-config.ts         agents.json loader, resolveAgentProgram/resolveReadyMarkers
   ensemble-registry.ts    team/agent state + message feed persistence
   log-buffer.ts           tees console.* into a ring buffer for GET /api/ensemble/logs
-  *-paths.ts, hosts-config.ts, staged-workflow.ts, worktree-manager.ts
+  win-process.ts          killProcessTree / killProcessTreeSync / PowerShell quoting (one copy)
+  collab-paths.ts, ensemble-paths.ts, staged-workflow.ts, worktree-manager.ts
 services/
   ensemble-service.ts     main business logic — runtime-agnostic; keep it that way
 types/                    ensemble.ts (teams/messages) + agent-program.ts (agents.json)
+bin/                      ensemble.cjs (CLI shim) + postinstall.cjs (node-pty check)
 agents.json               per-agent command/flags/readyMarker(s)/inputMethod/icon
 collab-templates.json     collaboration presets
 skill/SKILL.md            the /collab skill that drives ensemble from Claude Code
 tests/                    vitest; live-captured terminal screens used as fixtures
-docs/windows-port/        spec.md (original port spec), plan.md, status.md (history)
+.env.example              every environment variable the server and CLI read
 ```
 
 ---
@@ -74,7 +73,6 @@ docs/windows-port/        spec.md (original port spec), plan.md, status.md (hist
 | `npm run typecheck` | `tsc --noEmit` — must pass before any commit. |
 | `npm run build` | Same as typecheck (no emit). |
 | `npm run lint` | `eslint . --ext .ts`. |
-| `npm run monitor` | Live TUI monitor (`tsx cli/monitor.ts --latest`). **Use Windows Terminal.** |
 | `npm run cli -- <args>` | Run the CLI (e.g. `npm run cli -- status`). |
 
 **Monitoring GUI:** with the server running, open <http://localhost:23000/> — create a
@@ -86,8 +84,7 @@ Health check (server running): `curl http://localhost:23000/api/v1/health`
 → `{"status":"healthy",...}`. (`curl.exe` ships with Windows 10+; or use
 `Invoke-WebRequest`.)
 
-CLI examples: `npx ensemble status`, `npx ensemble monitor --latest`,
-`npx ensemble steer <team-id> "focus on the auth module"`.
+CLI examples: `npx ensemble status`, `npx ensemble steer <team-id> "focus on the auth module"`.
 
 ## Environment variables
 
@@ -98,7 +95,7 @@ CLI examples: `npx ensemble status`, `npx ensemble monitor --latest`,
 | `ENSEMBLE_URL` | `http://localhost:23000` | CLI target |
 | `ENSEMBLE_DATA_DIR` | `~/.ensemble` | Data dir |
 | `ENSEMBLE_AGENTS_CONFIG` | `./agents.json` | Alternative path to the agent program config |
-| `ENSEMBLE_CREATED_BY` / `ENSEMBLE_PROJECT` | — | Cosmetic labels stamped on created teams |
+| `ENSEMBLE_CREATED_BY` | — | Cosmetic label stamped on created teams |
 | `ENSEMBLE_CORS_ORIGIN` | localhost only | Allowed CORS origins |
 | `ENSEMBLE_SHELL` | `pwsh.exe` (else `powershell.exe`) | Override the shell PTY binary. Never use `cmd.exe`. |
 | `ENSEMBLE_RUNTIME_DIR` | `%TEMP%\ensemble` | Per-team collab artifacts (`messages.jsonl`, `bridge.pid`, `prompts/`, `delivery/`) |
@@ -142,9 +139,9 @@ Copy `.env.example` to `.env` before running.
   keep the `exit`/`SIGINT`/`SIGTERM` handlers.
 - **PTY sessions live in a module-level Map inside the server process.** Any other process
   that calls `setRuntime(new PtyRuntime())` gets a second, permanently empty registry whose
-  `sessionExists`/`capturePane` quietly answer "no such session". That is why
-  `cli/monitor.ts` is a pure HTTP client. Terminal output is only reachable over HTTP,
-  via `GET /api/ensemble/sessions/:name/pane`.
+  `sessionExists`/`capturePane` quietly answer "no such session". Anything outside the
+  server must be an HTTP client. Terminal output is only reachable over HTTP, via
+  `GET /api/ensemble/sessions/:name/pane`.
 - **A paste alone never submits.** `pasteFromFile` writes the text and `\r` back to back;
   agent CLIs treat that CR as part of the paste burst and park it in the composer
   (`[Pasted Content 1929 chars]`). Only a *standalone* Enter submits. Every delivery path —

@@ -2,7 +2,7 @@
 
 **Multi-agent collaboration engine** — AI agents that work as one.
 
-Ensemble orchestrates AI agents into collaborative teams. Out of the box it pairs **Claude Code + Codex** — they communicate, share findings, and solve problems together in real time. Agent processes run in native Windows ConPTY sessions and the live TUI monitor renders in Windows Terminal.
+Ensemble orchestrates AI agents into collaborative teams. Out of the box it pairs **Claude Code + Codex** — they communicate, share findings, and solve problems together in real time. Agent processes run in native Windows ConPTY sessions, and a browser GUI shows the collaboration live.
 
 > **Status:** Experimental developer tool. Native Windows only.
 
@@ -10,12 +10,11 @@ Ensemble orchestrates AI agents into collaborative teams. Out of the box it pair
 
 - **Team orchestration** — Spawn multi-agent teams with a single command
 - **Real-time messaging** — Agents communicate via a structured message bus
-- **TUI monitor** — Live viewer that renders in Windows Terminal (`npm run monitor`)
+- **Monitoring GUI** — Teams, transcript, live agent panes and the server log at <http://localhost:23000/>
 - **Explicit completion** — Agents end a run with a `<<COLLAB_DONE>>` sentinel; otherwise it stands until you disband it or it goes idle for an hour
-- **Multi-host support** — Run agents across local and remote machines
 - **CLI & HTTP API** — Full control via command line or REST endpoints
 
-**[Monitoring GUI →](http://localhost:23000/)** once the server is running. Project context and rules live in [AGENTS.md](AGENTS.md); port history in [docs/windows-port/](docs/windows-port/).
+Project context and rules live in [AGENTS.md](AGENTS.md).
 
 ## Quick Start
 
@@ -23,7 +22,7 @@ Ensemble orchestrates AI agents into collaborative teams. Out of the box it pair
 
 - Node.js 18+ LTS. Prefer a release supported by the prebuilt `node-pty` binaries.
 - Visual Studio Build Tools with the **Desktop development with C++** workload. `node-pty` uses `node-gyp`; installation fails when its native ConPTY binding cannot be built or loaded.
-- Windows Terminal. The monitor relies on modern ANSI/VT rendering and does not support legacy conhost.
+- Windows Terminal is recommended for running the server and CLI.
 - PowerShell 7 (`pwsh.exe`) is recommended. Windows PowerShell 5 (`powershell.exe`) is the fallback.
 - The agent CLIs you plan to run — [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex) — each already signed in. No Python or bash is needed.
 
@@ -69,8 +68,7 @@ $body = @{
 
 Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post -ContentType "application/json" -Body $body
 
-# Watch the collaboration live
-npm run monitor
+# Watch the collaboration live: open http://localhost:23000/ in a browser
 
 # Steer the team
 npm run cli -- steer <team-id> "focus on the auth module"
@@ -146,7 +144,7 @@ Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post 
 1. **Create a team** — Define agents and their task via API or CLI
 2. **Agents spawn** — Each agent is started in its own native Windows PTY session (`PtyRuntime`, via `node-pty`) with the task prompt
 3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `cli/ensemble.ts`) to exchange messages; run `ensemble bridge <team-id>` to relay `team-say` writes into the other agent's terminal live
-4. **Monitor** — Watch the collaboration unfold in real-time via the TUI monitor (`npm run monitor`, in Windows Terminal)
+4. **Monitor** — Watch the collaboration unfold in real time in the browser GUI at <http://localhost:23000/>
 5. **Disband** — On the `<<COLLAB_DONE>>` sentinel, a manual disband, or an hour of silence, the run is summarized, persisted, and every agent's process tree is killed
 
 ## Configuration
@@ -161,17 +159,14 @@ Copy `.env.example` to `.env` and adjust as needed. Key variables:
 | `ENSEMBLE_CORS_ORIGIN` | localhost only | Allowed CORS origins |
 | `ENSEMBLE_SHELL` | `pwsh.exe`, then `powershell.exe` | Override the PowerShell executable used for PTY sessions |
 
-See [AGENTS.md](AGENTS.md) for every variable, including readiness timeouts, the idle-disband window, watchdog timings and Telegram notifications.
+See [`.env.example`](.env.example) and [AGENTS.md](AGENTS.md) for every variable, including readiness timeouts, the idle-disband window and watchdog timings.
 
 ## Documentation
 
 - [AGENTS.md](AGENTS.md) — project context, commands, every environment variable, and the
   gotchas each live run exposed. `CLAUDE.md` imports it, so Claude Code and Codex read the
   same file.
-- [TESTING.md](TESTING.md) — the end-to-end run-through for a real two-agent team.
 - [REPO-STRUCTURE.md](REPO-STRUCTURE.md) — what this fork keeps, what it dropped, and why.
-- [docs/windows-port/](docs/windows-port/) — the port spec, the plan, and a status log of
-  every live run and the defect it found.
 
 Upstream's documentation site describes the tmux build and does not apply here.
 
