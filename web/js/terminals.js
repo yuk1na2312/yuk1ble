@@ -53,6 +53,7 @@ function createPane(team, agent) {
   let sending = false
   let gotReplay = false
   let starting = false
+  let replaying = false
   let toastTimer
 
   const stalled = h('span', { class: 'badge stalled', hidden: true }, 'stalled')
@@ -67,7 +68,8 @@ function createPane(team, agent) {
   const title = h('span', { class: 'pane-title' },
     h('span', { class: 'pane-icon', 'aria-hidden': 'true' }, look.icon),
     h('strong', {}, agent.name))
-  const meta = h('span', { class: 'pane-meta' }, `${agent.program}, ${look.model}, ${agent.role}`)
+  const metaText = `${agent.program}, ${look.model}, ${agent.role}`
+  const meta = h('span', { class: 'pane-meta', title: metaText }, metaText)
   const el = h('section', {
     class: 'pane', dataset: { state, agent: agent.name }, style: `--voice:${look.color}`,
     'aria-label': `Terminal of ${agent.name}`,
@@ -158,7 +160,9 @@ function createPane(team, agent) {
   }
 
   term.onData(data => {
-    if (state !== 'live') return
+    // Terminal queries found in a replay (device attributes, cursor position) were asked long ago of
+    // a terminal that no longer exists; answering them would type garbage into the agent.
+    if (state !== 'live' || replaying) return
     if (pending.length + data.length > MAX_PENDING_INPUT) return
     pending += data
     if (!inputTimer && !sending) inputTimer = setTimeout(flushInput, INPUT_BATCH_MS)
@@ -194,7 +198,8 @@ function createPane(team, agent) {
     source.addEventListener('replay', event => {
       gotReplay = true
       term.reset() // a reconnect replays the whole scrollback again
-      term.write(decode(event.data))
+      replaying = true
+      term.write(decode(event.data), () => { replaying = false })
       setState('live')
       reportSize(true)
     })

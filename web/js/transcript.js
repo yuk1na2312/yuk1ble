@@ -92,6 +92,7 @@ function onSelected(team) {
   view.unseen = 0
   paintJump()
   setComposerError('')
+  $('composer-to').value = 'team' // a recipient picked for another team does not carry over
   const empty = $('transcript-empty')
   empty.hidden = false
   empty.textContent = team ? 'Loading the conversation.' : 'Select a team to read what its agents say to each other.'

@@ -176,6 +176,7 @@ input::placeholder, textarea::placeholder { color: #85808f; }
   .terminals[data-count="5"], .terminals[data-count="6"],
   .terminals[data-count="7"], .terminals[data-count="8"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+.terminals[data-count="3"] .pane:last-of-type { grid-column: 1 / -1; }
 .terminals[data-max] { grid-template-columns: minmax(0, 1fr); }
 .terminals[data-max] .pane[data-max="false"] { display: none; }
 .terminals[data-count="1"] .icon-btn { display: none; }
@@ -193,13 +194,13 @@ input::placeholder, textarea::placeholder { color: #85808f; }
   display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 10px;
   background: var(--panel); border-bottom: 1px solid var(--line); min-height: 34px;
 }
-.pane-title { display: inline-flex; align-items: center; gap: 7px; }
+.pane-title { display: inline-flex; align-items: center; gap: 7px; flex: none; white-space: nowrap; }
 .pane-icon { color: var(--voice); }
 .pane-meta { color: var(--dim); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .pane-spacer { flex: 1; }
 .icon-btn { padding: 2px 8px; font-size: 12.5px; }
 
-.badge { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); white-space: nowrap; }
+.badge { flex: none; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line-strong); color: var(--dim); white-space: nowrap; }
 .badge.stalled { color: var(--err); border-color: var(--err); }
 .badge.state { display: inline-flex; align-items: center; gap: 6px; }
 .badge.state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
