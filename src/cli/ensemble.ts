@@ -216,17 +216,30 @@ async function cmdTeams() {
   }
 }
 
-async function cmdSteer(teamId: string, message: string) {
+/** Like team-say: success is printed only for a 2xx; otherwise the server's error goes to stderr and the exit code is 1. */
+async function cmdSteer(teamId: string, message: string): Promise<void> {
+  let response: Response
   try {
-    await apiPost(`/api/ensemble/teams/${teamId}`, {
-      from: 'user',
-      to: 'team',
-      content: message,
-    })
-    console.log(`${c.bGreen}✓${c.r} Message sent to team`)
-  } catch {
-    console.log(`${c.red}✗${c.r} Failed to send message`)
+    response = await fetchWithTimeout(`${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'user', to: 'team', content: message }),
+    }, 15_000)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.error(`steer failed: cannot reach the ensemble server at ${API_BASE} (${reason}). Is it running? (npm run dev)`)
+    process.exitCode = 1
+    return
   }
+
+  if (!response.ok) {
+    const detail = await response.json().then((b: { error?: string }) => b.error, () => undefined)
+    console.error(`steer failed: HTTP ${response.status}${detail ? ` ${detail}` : ''}`)
+    process.exitCode = 1
+    return
+  }
+
+  console.log(`${c.bGreen}✓${c.r} Message sent to team`)
 }
 
 async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: number) {

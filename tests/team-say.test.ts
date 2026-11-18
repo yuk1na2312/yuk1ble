@@ -134,6 +134,33 @@ describe('team-say over HTTP', () => {
     expect(result.stderr).toContain('HTTP 400')
   })
 
+  it('steer prints success only when the server accepted the message', async () => {
+    const ok = await runCli(['steer', teamId, 'focus', 'on', 'auth'], { ENSEMBLE_URL: server.baseUrl })
+    expect(ok.code).toBe(0)
+    expect(ok.stdout).toContain('Message sent to team')
+
+    const feed = await (await fetch(`${server.baseUrl}/api/ensemble/teams/${teamId}/feed`)).json() as {
+      messages: Array<{ from: string; to: string; content: string }>
+    }
+    expect(feed.messages.at(-1)).toMatchObject({ from: 'user', to: 'team', content: 'focus on auth' })
+  })
+
+  it('steer exits non-zero with the server error when the team does not exist', async () => {
+    const result = await runCli(['steer', 'no-such-team', 'hi'], { ENSEMBLE_URL: server.baseUrl })
+    expect(result.code).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('steer failed: HTTP 404')
+    expect(result.stderr).toContain('Team not found')
+  })
+
+  it('steer exits non-zero when the server is not running', async () => {
+    const port = await freeClosedPort()
+    const result = await runCli(['steer', teamId, 'hi'], { ENSEMBLE_URL: `http://127.0.0.1:${port}` })
+    expect(result.code).toBe(1)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('cannot reach the ensemble server')
+  })
+
   it('falls back to ENSEMBLE_PORT when ENSEMBLE_URL is unset', async () => {
     const port = new URL(server.baseUrl).port
     const result = await runCli(['team-say', teamId, 'codex-1', 'claude-2', 'via port'], { ENSEMBLE_URL: '', ENSEMBLE_PORT: port })
