@@ -147,7 +147,7 @@ describe('the CLI is a pure HTTP client', () => {
     // loading node-pty costs every team-say start-up time (AGENTS.md gotchas).
     const source = fs.readFileSync(CLI, 'utf8')
     const imports = source.split('\n').filter(line => /^\s*import\b/.test(line)).join('\n')
-    expect(imports).not.toMatch(/agent-runtime|pty-runtime|ensemble-registry|node-pty|collab-paths/)
+    expect(imports).not.toMatch(/agent-runtime|pty-runtime|core\/store|node-pty|collab-paths/)
     expect(source).not.toMatch(/setRuntime\(/)
   })
 })
