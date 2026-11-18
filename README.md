@@ -154,7 +154,7 @@ Invoke-RestMethod -Uri "http://localhost:23000/api/ensemble/teams" -Method Post 
 
 1. **Create a team** — Define agents and their task via API or CLI
 2. **Agents spawn** — The API answers 202 immediately and the rest happens in the background. Each agent is started in its own native Windows PTY session (`PtyRuntime`, via `node-pty`) with the task prompt
-3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `cli/ensemble.ts`). `team-say` POSTs to the server, which records the message and answers at once, then pastes it into the recipient's terminal in the background (`team` as recipient reaches everyone); `team-read` reads the feed. If the server is down, `team-say` prints an error and exits non-zero
+3. **Communication** — Agents run `team-say`/`team-read` (Node CLI subcommands in `src/cli/ensemble.ts`). `team-say` POSTs to the server, which records the message and answers at once, then pastes it into the recipient's terminal in the background (`team` as recipient reaches everyone); `team-read` reads the feed. If the server is down, `team-say` prints an error and exits non-zero
 4. **Monitor** — Watch the collaboration unfold in real time in the browser GUI at <http://localhost:23000/>
 5. **Disband** — On the `<<COLLAB_DONE>>` sentinel, a manual disband, or an hour of silence, the run is summarized, persisted, and every agent's process tree is killed
 

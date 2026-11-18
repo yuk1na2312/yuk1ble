@@ -1,6 +1,6 @@
 /**
  * Ensemble Server — boot file: configuration, runtime, listen. The routes live
- * in lib/http-routes.ts, the request guard in lib/http-guard.ts.
+ * in routes.ts, the request guard in guard.ts.
  */
 
 import http from 'http'

@@ -1,6 +1,6 @@
 /**
  * AgentProgram — everything specific to one agent CLI, as data.
- * Loaded and validated from agents.json at startup (see lib/agent-config.ts);
+ * Loaded and validated from agents.json at startup (see agent-config.ts);
  * no code names a CLI, so adding one is a JSON entry.
  */
 
@@ -57,7 +57,7 @@ export interface AgentProgram {
   readyMarkers: string[]
   /** How to deliver multi-line prompts. */
   inputMethod: 'pasteFromFile' | 'sendKeys'
-  /** Regex source for the composer text of a paste that was not submitted. Absent means the default in lib/paste-submit.ts. */
+  /** Regex source for the composer text of a paste that was not submitted. Absent means the default in src/core/paste-submit.ts. */
   pasteMarker?: string
   gates?: AgentGate[]
   usagePatterns?: AgentUsagePattern[]

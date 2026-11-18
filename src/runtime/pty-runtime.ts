@@ -263,7 +263,7 @@ export class PtyRuntime implements AgentRuntime {
 
   paste(name: string, text: string): void {
     const session = getSession(name)
-    // Two writes on purpose: the CR must not travel inside the paste burst (see lib/paste-submit.ts).
+    // Two writes on purpose: the CR must not travel inside the paste burst (see src/core/paste-submit.ts).
     session.pty.write(text)
     session.pty.write('\r')
   }

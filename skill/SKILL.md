@@ -14,14 +14,14 @@ metadata:
 Native Windows only — no tmux, no iTerm, no bash scripts. Launch a Codex + Claude team
 through the ensemble HTTP API and CLI (`__ENSEMBLE_DIR__\bin\ensemble.cjs`, run with
 `node`). Runtime files are namespaced under `%TEMP%\ensemble\<TEAM_ID>\` (Windows temp
-dir; `lib/collab-paths.ts` resolves this as `os.tmpdir()/ensemble`, overridable with
+dir; `src/core/collab-paths.ts` resolves this as `os.tmpdir()/ensemble`, overridable with
 `$env:ENSEMBLE_RUNTIME_DIR`).
 
 ## Path Convention
 Runtime artifacts live in `%TEMP%\ensemble\<TEAM_ID>\`:
-- `summary.txt` — written on disband by ensemble-service
+- `summary.txt` — written on disband by team-lifecycle
 - `prompts/` — what each agent was told at startup (a debugging record)
-- `.finished` — written by ensemble-service AFTER summary.txt
+- `.finished` — written by team-lifecycle AFTER summary.txt
 
 The **transcript is not in that directory.** The server holds it in memory and logs every
 message, one JSON object per line (each with a per-team `seq`), to
@@ -156,7 +156,7 @@ user, there is nothing left to wait for.
 
 **When done**, cleanup is fully automatic: the server tears down the agent sessions and
 writes `summary.txt` itself (auto-disband, `disbandTeam` in
-`services/ensemble-service.ts`), as soon as every agent still active has sent `<<COLLAB_DONE>>`, when
+`src/core/team-lifecycle.ts`), as soon as every agent still active has sent `<<COLLAB_DONE>>`, when
 the user disbands, or after an hour of silence. Nothing needs to be killed manually.
 
 ## Important Notes
@@ -167,10 +167,10 @@ the user disbands, or after an hour of silence. Nothing needs to be killed manua
 - Do not edit or delete the team's `feed.jsonl` while the server is running — the server
   keeps the transcript in memory and would not see the change anyway.
 - Multiple collabs can run simultaneously — each has its own `%TEMP%\ensemble\<TEAM_ID>\` namespace
-- The message bus is `team-say` / `team-read`, Node CLI subcommands in `cli/ensemble.ts`
+- The message bus is `team-say` / `team-read`, Node CLI subcommands in `src/cli/ensemble.ts`
   (a pure HTTP client). Agents invoke them as
   `node "__ENSEMBLE_DIR__\bin\ensemble.cjs" team-say <team-id> <from> <to> <message>`; it prints
   `Sent to <to>` on success and exits non-zero with an error on stderr if the server
   is unreachable or rejects the message. There is no bridge process and no message file
   to append to.
-- `.finished` and `summary.txt` are written by ensemble-service, NOT by the CLI.
+- `.finished` and `summary.txt` are written by team-lifecycle, NOT by the CLI.

@@ -37,7 +37,7 @@ export interface AgentRuntime {
   write(name: string, data: string): void
   /** Named keys ("Enter", "C-c", "Down" ...) or, with `literal`, typed text. */
   sendKeys(name: string, keys: string, opts?: SendKeysOptions): void
-  /** The text, then a CR as a separate write. A paste alone never submits: see lib/paste-submit.ts. */
+  /** The text, then a CR as a separate write. A paste alone never submits: see src/core/paste-submit.ts. */
   paste(name: string, text: string): void
   resize(name: string, cols: number, rows: number): void
 

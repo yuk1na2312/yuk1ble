@@ -14,47 +14,51 @@ This file records the cut, so nobody has to re-derive it.
 
 ```
 ensemble-win/
-├─ server.ts                    boot file: config, runtime, listen on 23000
 ├─ agents.json                  one adapter per agent CLI: flags, gates, markers, models, colour…
 ├─ collab-templates.json        collaboration presets
 ├─ package.json  tsconfig.json  .eslintrc.json  .gitignore  .env.example
 │
-├─ cli/
-│  └─ ensemble.ts               CLI (pure HTTP client): status, run, steer, team-say, team-read
-│
-├─ lib/                         modules, all reachable from server.ts
-│  ├─ http-routes.ts            every HTTP route and the GUI at /, behind the guard
-│  ├─ http-guard.ts             Host + Origin checks, body cap, CORS headers, JSON helpers
-│  ├─ sse.ts                    SSE: team/message/log events, per-session terminal stream
-│  ├─ agent-runtime.ts          AgentRuntime interface, getRuntime/setRuntime
-│  ├─ pty-runtime.ts            the only runtime: node-pty sessions, scrollback, listeners, tree-kill
-│  ├─ delivery.ts               deliver(): queue, paste, submit — the one way text reaches an agent
-│  ├─ session-name.ts           the runtime session name of an agent
-│  ├─ pane-readiness.ts         marker match · shell-prompt guard · quiescent-screen fallback
-│  ├─ readiness.ts              waitForReady(): the readiness wait, dependencies injected
-│  ├─ programs.ts               program catalog for GET /api/ensemble/programs
-│  ├─ paste-submit.ts           ensureSubmitted() — a paste alone never submits
-│  ├─ agent-spawner.ts          spawnLocalAgent / killLocalAgent, PowerShell command line
-│  ├─ agent-watchdog.ts         liveness: nudge → stall via exists
-│  ├─ agent-config.ts           agents.json loader + validation, program/model resolution
-│  ├─ ensemble-registry.ts      in-memory team + message store; files are a persistence log
-│  ├─ bus.ts                    typed event bus: team, message, log
-│  ├─ log-buffer.ts             tees console.* into a ring buffer for the GUI log pane
-│  ├─ collab-paths.ts           %TEMP%\ensemble\<team-id>\… layout
-│  ├─ ensemble-paths.ts         ~/.ensemble data layout
-│  ├─ win-process.ts            tree-kill, PowerShell quoting and PATH lookup, one copy
-│  ├─ prompts.ts                collab templates, startup prompt, the done sentinel
-│  ├─ summary.ts                summary.txt on disband
-│  ├─ messaging.ts              sendTeamMessage: feed first, terminal delivery in the background
-│  ├─ team-supervisor.ts        done sentinel, idle auto-disband, watchdog
-│  ├─ staged-workflow.ts        staged prompt delivery
-│  └─ worktree-manager.ts       per-agent git worktree isolation
-│
-├─ services/ensemble-service.ts team validation, start and disband — runtime-agnostic on purpose
-├─ types/                       ensemble.ts (teams/messages) · agent-program.ts (agents.json)
-├─ public/index.html            monitoring GUI: teams, transcript, live PTY panes, server log
+├─ src/
+│  ├─ repo-root.ts              REPO_ROOT: the one place a path is computed from a file's location
+│  ├─ types.ts                  teams and messages
+│  ├─ server/                   the HTTP process
+│  │  ├─ index.ts               boot file: config, runtime, listen on 23000
+│  │  ├─ routes.ts              every HTTP route and the GUI at /, behind the guard
+│  │  ├─ guard.ts               Host + Origin checks, body cap, CORS headers, JSON helpers
+│  │  ├─ sse.ts                 SSE: team/message/log events, per-session terminal stream
+│  │  ├─ static.ts              serves web/ and the fixed /vendor xterm files
+│  │  └─ log-buffer.ts          tees console.* into a ring buffer for the GUI log pane
+│  ├─ core/                     business logic, runtime-agnostic on purpose
+│  │  ├─ team-lifecycle.ts      team validation, start and disband
+│  │  ├─ store.ts               in-memory team + message store; files are a persistence log
+│  │  ├─ bus.ts                 typed event bus: team, message, log
+│  │  ├─ messaging.ts           sendTeamMessage: feed first, terminal delivery in the background
+│  │  ├─ delivery.ts            deliver(): queue, paste, submit — the one way text reaches an agent
+│  │  ├─ paste-submit.ts        ensureSubmitted() — a paste alone never submits
+│  │  ├─ readiness.ts           waitForReady(): the readiness wait, dependencies injected
+│  │  ├─ pane-readiness.ts      marker match · shell-prompt guard · quiescent-screen fallback
+│  │  ├─ agent-spawner.ts       spawnLocalAgent / killLocalAgent, PowerShell command line
+│  │  ├─ watchdog.ts            liveness: nudge → stall via exists
+│  │  ├─ team-supervisor.ts     done sentinel, idle auto-disband, watchdog
+│  │  ├─ prompts.ts             collab templates, startup prompt, the done sentinel
+│  │  ├─ staged-workflow.ts     staged prompt delivery
+│  │  ├─ summary.ts             summary.txt on disband
+│  │  ├─ worktrees.ts           per-agent git worktree isolation
+│  │  ├─ session-name.ts        the runtime session name of an agent
+│  │  ├─ collab-paths.ts        %TEMP%\ensemble\<team-id>\… layout
+│  │  └─ data-paths.ts          ~/.ensemble data layout
+│  ├─ runtime/                  the only door to a terminal
+│  │  ├─ agent-runtime.ts       AgentRuntime interface, getRuntime/setRuntime
+│  │  ├─ pty-runtime.ts         the only runtime: node-pty sessions, scrollback, listeners, tree-kill
+│  │  └─ win-process.ts         tree-kill, PowerShell quoting and PATH lookup, one copy
+│  ├─ adapters/                 everything per agent CLI
+│  │  ├─ agent-config.ts        agents.json loader + validation, program/model resolution
+│  │  ├─ programs.ts            program catalog for GET /api/ensemble/programs
+│  │  └─ types.ts               the agents.json schema types
+│  └─ cli/ensemble.ts           CLI (pure HTTP client): status, run, steer, team-say, team-read
+├─ web/                         monitoring GUI: index.html, app.css, ES modules in js/ (teams, transcript, live PTY panes, server log)
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       339 tests / 26 files (+ helpers/, fixtures/)
+├─ tests/                       380 tests / 29 files (+ helpers/, fixtures/)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -63,9 +67,10 @@ ensemble-win/
 └─ README.md  REPO-STRUCTURE.md  LICENSE
 ```
 
-Layout is deliberately **flat** — `server.ts` at the root, no `src/`. Moving it would mean
-rewriting ~40 relative imports, `tsconfig`, and `bin/ensemble.cjs`'s path to
-`cli/ensemble.ts`, for no runtime benefit.
+All TypeScript lives under `src/`, one folder per layer: `server` (HTTP), `core` (logic),
+`runtime` (the terminal), `adapters` (per-CLI data), `cli`. Anything that locates a file by
+its own position (the default `agents.json`, `web/`, the `bin/ensemble.cjs` path agents are
+told to run) goes through `REPO_ROOT` in `src/repo-root.ts`, never a `..` chain.
 
 ## Verified after the copy
 
@@ -75,8 +80,8 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 339 passed / 26 files |
-| `npx tsx server.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
+| `npx vitest run` | 380 passed / 29 files |
+| `npx tsx src/server/index.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---
 
@@ -132,9 +137,9 @@ stream `…/stream`. The same goes for state: team
 and message data live in the server's memory and the files are only its log, so `team-say`
 is a POST, not a file append, and there is no per-team bridge process.
 
-**`services/ensemble-service.ts` stays runtime-agnostic.** Session behaviour belongs in
+**`src/core/` stays runtime-agnostic** (`team-lifecycle.ts` above all). Session behaviour belongs in
 `PtyRuntime` behind the `AgentRuntime` interface, and text reaches a terminal only through
-`lib/delivery.ts`. That seam is the only reason this port was a rewrite of one file rather
+`src/core/delivery.ts`. That seam is the only reason this port was a rewrite of one file rather
 than of the whole codebase.
 
 ---

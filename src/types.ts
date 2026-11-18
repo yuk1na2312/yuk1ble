@@ -21,7 +21,7 @@ export interface EnsembleTeam {
 export interface EnsembleTeamAgent {
   agentId: string
   name: string
-  /** The runtime session of this agent's terminal (lib/session-name.ts); what the session routes are addressed by. */
+  /** The runtime session of this agent's terminal (src/core/session-name.ts); what the session routes are addressed by. */
   sessionName?: string
   program: string
   role: string

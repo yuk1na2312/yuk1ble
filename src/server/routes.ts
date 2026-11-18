@@ -1,5 +1,5 @@
 /**
- * The HTTP API: every route, behind the Host/Origin guard. server.ts boots it.
+ * The HTTP API: every route, behind the Host/Origin guard. index.ts boots it.
  */
 
 import http from 'http'

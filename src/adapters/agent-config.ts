@@ -282,7 +282,7 @@ export function isValidModel(program: string, model: string): boolean {
  *
  * Tokens are deliberately left unescaped: callers either hand them straight to
  * execFile/spawn, or quote them for a specific shell themselves (see
- * `toPowerShellCommandLine` in lib/agent-spawner.ts).
+ * `toPowerShellCommandLine` in src/core/agent-spawner.ts).
  *
  * A model is appended as two tokens, [modelFlag, model]. ENSEMBLE_AGENT_FLAGS
  * outranks both the default flags and the model: it is the operator override.
