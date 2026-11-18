@@ -225,8 +225,9 @@ function createPane(team, agent) {
     const found = current.agents.find(a => a.name === agent.name)
     if (found) {
       agent = found
-      stalled.hidden = !found.stalledAt
-      stalled.title = found.stalledAt ? `No progress since ${new Date(found.stalledAt).toLocaleTimeString()}` : ''
+      const stalledNow = found.stalledAt && current.status !== 'disbanded' // an ended team's agents are not stalled
+      stalled.hidden = !stalledNow
+      stalled.title = stalledNow ? `No progress since ${new Date(found.stalledAt).toLocaleTimeString()}` : ''
     }
     if (source || starting || state === 'exited' || state === 'none') return
     if (current.status === 'disbanded') setState('none', 'This team has ended, so its terminals are closed.')
