@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam } from '../src/types'
 
 function makeMessage(overrides: Partial<EnsembleMessage> = {}): EnsembleMessage {
   return {
@@ -57,7 +57,7 @@ describe('StagedWorkflowManager', () => {
     const appended: string[] = []
     let messageReadCount = 0
 
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../src/core/store', () => ({
       appendMessage: vi.fn((_teamId: string, message: EnsembleMessage) => appended.push(message.content)),
       getMessages: vi.fn((_teamId: string, _since?: string) => {
         messageReadCount += 1
@@ -73,7 +73,7 @@ describe('StagedWorkflowManager', () => {
         ]
       }),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
         sendKeys: vi.fn((session: string, text: string) => {
           delivered.push({ session, text })
@@ -83,14 +83,14 @@ describe('StagedWorkflowManager', () => {
         screen: vi.fn(() => '> '),
       })),
     }))
-    vi.doMock('../lib/agent-config', () => ({
+    vi.doMock('../src/adapters/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
     }))
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
     }))
 
-    const { StagedWorkflowManager } = await import('../lib/staged-workflow')
+    const { StagedWorkflowManager } = await import('../src/core/staged-workflow')
 
     const manager = new StagedWorkflowManager({
       team: makeTeam(),
@@ -138,11 +138,11 @@ describe('StagedWorkflowManager', () => {
           ? '› [Pasted Content 1929 chars]'
           : '› '),
     }
-    vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
-    vi.doMock('../lib/agent-config', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
+    vi.doMock('../src/adapters/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ inputMethod: 'pasteFromFile' })),
     }))
-    const { StagedWorkflowManager } = await import('../lib/staged-workflow')
+    const { StagedWorkflowManager } = await import('../src/core/staged-workflow')
     const manager = new StagedWorkflowManager({
       team: makeTeam(),
       config: { planTimeoutMs: 1, execTimeoutMs: 1, verifyTimeoutMs: 0, pollIntervalMs: 0 },
@@ -161,7 +161,7 @@ describe('StagedWorkflowManager', () => {
   })
 
   it('has every agent of a larger team review exactly one teammate, in a ring', async () => {
-    const { StagedWorkflowManager } = await import('../lib/staged-workflow')
+    const { StagedWorkflowManager } = await import('../src/core/staged-workflow')
     const team = makeTeam()
     team.agents.push({ agentId: 'a3', name: 'codex-3', program: 'codex', role: 'worker', status: 'active' })
     const reviews: string[] = []

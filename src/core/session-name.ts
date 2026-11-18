@@ -5,7 +5,7 @@
  * with it, and the store stamps it on every agent so the GUI never rebuilds it.
  */
 
-import type { EnsembleTeam, EnsembleTeamAgent } from '../types/ensemble'
+import type { EnsembleTeam, EnsembleTeamAgent } from '../types'
 
 /** What the runtime accepts in a session name; everything else is stripped. */
 const STRIPPED = /[^a-zA-Z0-9\-_.]/g

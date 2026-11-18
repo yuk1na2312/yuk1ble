@@ -8,10 +8,8 @@
 
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import type { AgentGate, AgentModel, AgentProgram, AgentsConfig, AgentUsagePattern } from '../types/agent-program'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
+import { REPO_ROOT } from '../repo-root'
+import type { AgentGate, AgentModel, AgentProgram, AgentsConfig, AgentUsagePattern } from './types'
 
 export class AgentConfigError extends Error {
   constructor(message: string) {
@@ -210,7 +208,7 @@ export function loadAgentsConfig(): AgentsConfig {
   if (_cache) return _cache
 
   const configPath = process.env['ENSEMBLE_AGENTS_CONFIG']
-    || path.join(__dirname, '..', 'agents.json')
+    || path.join(REPO_ROOT, 'agents.json')
 
   let raw: unknown
   try {

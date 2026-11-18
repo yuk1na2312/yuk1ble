@@ -5,8 +5,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolveAgentProgram } from '../lib/agent-config'
-import { DATA_DEBOUNCE_MS, waitForReady } from '../lib/readiness'
+import { resolveAgentProgram } from '../src/adapters/agent-config'
+import { DATA_DEBOUNCE_MS, waitForReady } from '../src/core/readiness'
 import { CLAUDE_READY_SCREEN, CLAUDE_TRUST_SCREEN } from './fixtures/screens'
 
 function scriptedTerminal(initial: string) {

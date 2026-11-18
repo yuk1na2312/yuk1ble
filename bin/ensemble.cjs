@@ -28,7 +28,7 @@ function findPackageRoot() {
 }
 
 const root = findPackageRoot();
-const cli = join(root, 'cli', 'ensemble.ts');
+const cli = join(root, 'src', 'cli', 'ensemble.ts');
 
 try {
   execFileSync(process.execPath, ['--import', 'tsx', cli, ...process.argv.slice(2)], {

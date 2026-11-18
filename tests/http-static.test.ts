@@ -49,7 +49,7 @@ describe('static GUI files', () => {
       canLink = false
     }
 
-    const { createRequestHandler } = await import('../lib/http-routes')
+    const { createRequestHandler } = await import('../src/server/routes')
     server = http.createServer(createRequestHandler({ host: '127.0.0.1', port: 0, webRoot }))
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
     port = (server.address() as AddressInfo).port

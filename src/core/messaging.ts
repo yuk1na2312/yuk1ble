@@ -3,10 +3,10 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { EnsembleMessage, ServiceResult } from '../types/ensemble'
-import { getTeam, appendMessage } from './ensemble-registry'
+import type { EnsembleMessage, ServiceResult } from '../types'
+import { getTeam, appendMessage } from './store'
 import { deliver, MAX_PENDING_DELIVERIES } from './delivery'
-import { resolveAgentProgram } from './agent-config'
+import { resolveAgentProgram } from '../adapters/agent-config'
 import { agentSessionName } from './session-name'
 
 export interface SendMessageResult extends ServiceResult<{ message: EnsembleMessage }> {

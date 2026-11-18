@@ -5,11 +5,8 @@
 
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import type { CollabTemplatesFile } from '../types/ensemble'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.resolve(__dirname, '..')
+import { REPO_ROOT } from '../repo-root'
+import type { CollabTemplatesFile } from '../types'
 
 // Explicit sentinel: when every agent still active has sent this exact marker
 // as a full message, the team auto-disbands immediately — no idle wait, no minimum
@@ -20,7 +17,7 @@ export const EXPLICIT_DONE_SENTINEL = '<<COLLAB_DONE>>'
 export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['templates'][string] | undefined {
   if (!templateName) return undefined
   try {
-    const templatesPath = path.join(__dirname, '..', 'collab-templates.json')
+    const templatesPath = path.join(REPO_ROOT, 'collab-templates.json')
     const raw = fs.readFileSync(templatesPath, 'utf-8')
     const data: CollabTemplatesFile = JSON.parse(raw)
     const template = data.templates[templateName]
@@ -39,7 +36,7 @@ export function loadCollabTemplate(templateName?: string): CollabTemplatesFile['
 /** Every preset in collab-templates.json, keyed for `templateName`; behind GET /api/ensemble/templates. */
 export function listCollabTemplates(): Array<CollabTemplatesFile['templates'][string] & { key: string }> {
   try {
-    const raw = fs.readFileSync(path.join(__dirname, '..', 'collab-templates.json'), 'utf-8')
+    const raw = fs.readFileSync(path.join(REPO_ROOT, 'collab-templates.json'), 'utf-8')
     const data: CollabTemplatesFile = JSON.parse(raw)
     return Object.entries(data.templates).map(([key, template]) => ({ key, ...template }))
   } catch (err) {

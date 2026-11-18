@@ -41,13 +41,13 @@ describe('sendTeamMessage delivery', () => {
       screen: vi.fn((session: string) => { events.push(`submit-check ${session}`); return '>' }),
       sendKeys: vi.fn(() => {}),
     }
-    vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(), killLocalAgent: vi.fn(), getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
 
-    const store = await import('../lib/ensemble-registry')
-    const service = await import('../services/ensemble-service')
+    const store = await import('../src/core/store')
+    const service = await import('../src/core/team-lifecycle')
     const team = store.createTeam({
       name: 'trio', description: 'd',
       agents: [{ program: 'codex' }, { program: 'claude' }, { program: 'gemini' }],

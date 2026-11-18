@@ -4,7 +4,7 @@ import { execFile } from 'child_process'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { bootServer, freeClosedPort } from './helpers/boot-server'
 
-const CLI = path.resolve(process.cwd(), 'cli/ensemble.ts')
+const CLI = path.resolve(process.cwd(), 'src/cli/ensemble.ts')
 
 interface CliResult { code: number; stdout: string; stderr: string }
 

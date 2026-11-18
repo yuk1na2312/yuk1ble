@@ -12,7 +12,7 @@
  * startup prompt nor any teammate message, and merely looks stalled.
  */
 
-import type { AgentRuntime } from './agent-runtime'
+import type { AgentRuntime } from '../runtime/agent-runtime'
 
 /** Regex source of the default parked-paste indicator; an adapter's `pasteMarker` overrides it. */
 export const DEFAULT_PASTE_MARKER = '\\[Pasted (?:text|Content)'

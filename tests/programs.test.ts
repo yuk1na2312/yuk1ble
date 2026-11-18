@@ -3,8 +3,8 @@ import os from 'os'
 import path from 'path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { bootServer, FIXTURE_AGENTS_CONFIG } from './helpers/boot-server'
-import { clearAgentsConfigCache } from '../lib/agent-config'
-import { PROGRAMS_CACHE_MS, clearProgramsCache, describePrograms } from '../lib/programs'
+import { clearAgentsConfigCache } from '../src/adapters/agent-config'
+import { PROGRAMS_CACHE_MS, clearProgramsCache, describePrograms } from '../src/adapters/programs'
 
 describe('GET /api/ensemble/programs', () => {
   let server: Awaited<ReturnType<typeof bootServer>>

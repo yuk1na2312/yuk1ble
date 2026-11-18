@@ -6,7 +6,7 @@ describe('buildPromptPreview', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.resetModules() })
 
   async function prompt(agentIndex: number, names: string[], templateName?: string) {
-    const { buildPromptPreview } = await import('../services/ensemble-service')
+    const { buildPromptPreview } = await import('../src/core/team-lifecycle')
     return buildPromptPreview({
       teamId: 'tid', teamName: 'squad', description: 'the task',
       agentName: names[agentIndex], teammateNames: names.filter((_, i) => i !== agentIndex), agentIndex, templateName,

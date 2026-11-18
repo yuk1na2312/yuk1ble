@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam } from '../src/types'
 import {
   AgentWatchdog,
   getWatchdogNudgeMs,
   WATCHDOG_NUDGE_TEXT,
   getWatchdogStallMs,
-} from '../lib/agent-watchdog'
+} from '../src/core/watchdog'
 
 function makeTeam(overrides: Partial<EnsembleTeam> = {}): EnsembleTeam {
   return {

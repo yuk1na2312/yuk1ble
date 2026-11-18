@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { ensureSubmitted, PASTE_NOT_SUBMITTED } from '../lib/paste-submit'
+import { ensureSubmitted, PASTE_NOT_SUBMITTED } from '../src/core/paste-submit'
 
 const CODEX_PARKED = '› [Pasted Content 1929 chars]'
 const CLAUDE_PARKED = '❯ [Pasted text #1 +42 lines]'

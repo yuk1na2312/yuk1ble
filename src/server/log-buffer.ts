@@ -6,7 +6,7 @@
  * originals are always called, so the terminal keeps working unchanged.
  */
 
-import { bus } from './bus'
+import { bus } from '../core/bus'
 
 const MAX_ENTRIES = 2000
 

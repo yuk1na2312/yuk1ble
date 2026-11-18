@@ -20,8 +20,8 @@
  * quiescence clock and the timeout, and it keeps working if the output feed does not.
  */
 
-import type { AgentRuntime } from './agent-runtime'
-import type { AgentGate } from '../types/agent-program'
+import type { AgentRuntime } from '../runtime/agent-runtime'
+import type { AgentGate } from '../adapters/types'
 import { matchReadyMarker, isQuiescentReady } from './pane-readiness'
 
 /** A gate is abandoned after this many answers so a screen that keeps matching cannot starve the ready check. */

@@ -4,7 +4,7 @@
  */
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { MAX_INPUT_BYTES } from '../lib/http-routes'
+import { MAX_INPUT_BYTES } from '../src/server/routes'
 import { bootServer } from './helpers/boot-server'
 
 describe('session input and resize routes', () => {

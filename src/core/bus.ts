@@ -7,8 +7,8 @@
  */
 
 import { EventEmitter } from 'events'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
-import type { LogEntry } from './log-buffer'
+import type { EnsembleMessage, EnsembleTeam } from '../types'
+import type { LogEntry } from '../server/log-buffer'
 
 export interface BusEvents {
   /** A team was created or changed; the payload is its new state. */

@@ -6,15 +6,15 @@ import http from 'http'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
   getTeamFeed, sendTeamMessage, disbandTeam,
-} from '../services/ensemble-service'
-import { getRuntime } from './agent-runtime'
-import { isLiveTeamSession } from './ensemble-registry'
+} from '../core/team-lifecycle'
+import { getRuntime } from '../runtime/agent-runtime'
+import { isLiveTeamSession } from '../core/store'
 import { getLogEntries } from './log-buffer'
-import { describePrograms } from './programs'
-import { listCollabTemplates } from './prompts'
-import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './http-guard'
+import { describePrograms } from '../adapters/programs'
+import { listCollabTemplates } from '../core/prompts'
+import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './guard'
 import { handleEvents, handleSessionStream } from './sse'
-import { serveStatic } from './http-static'
+import { serveStatic } from './static'
 
 /** How long a client may keep sending a refused body before its connection is cut. */
 const BODY_DRAIN_MS = 2_000

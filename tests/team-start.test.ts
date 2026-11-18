@@ -39,18 +39,18 @@ describe('team startup in the background', () => {
       exists: vi.fn(() => true),
       onData: vi.fn(() => () => {}),
     }
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(options.spawn ?? (async ({ sessionName }: { sessionName: string }) => ({ id: `${sessionName}-id` }))),
       killLocalAgent,
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(options.getRuntime ?? (() => runtime)) }))
-    vi.doMock('../lib/agent-config', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({ getRuntime: vi.fn(options.getRuntime ?? (() => runtime)) }))
+    vi.doMock('../src/adapters/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
     }))
-    const store = await import('../lib/ensemble-registry')
-    const service = await import('../services/ensemble-service')
+    const store = await import('../src/core/store')
+    const service = await import('../src/core/team-lifecycle')
     return { store, service, killLocalAgent }
   }
 

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   AgentConfigError, UnknownProgramError, clearAgentsConfigCache, loadAgentsConfig, parseAgentsConfig,
   buildAgentCommandParts, isValidModel, requireAgentProgram, resolveAgentModels, resolveAgentProgram, resolveReadyMarkers,
-} from '../lib/agent-config'
+} from '../src/adapters/agent-config'
 import { FIXTURE_AGENTS_CONFIG } from './helpers/boot-server'
 
 const execFileAsync = promisify(execFile)
@@ -132,7 +132,7 @@ describe('loading', () => {
     })
 
     const tsx = path.join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs')
-    const result = await execFileAsync(process.execPath, [tsx, 'server.ts'], {
+    const result = await execFileAsync(process.execPath, [tsx, 'src/server/index.ts'], {
       cwd: process.cwd(),
       env: {
         ...process.env,

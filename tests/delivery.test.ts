@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { deliver, deliverStrict, MAX_PENDING_DELIVERIES, pendingDeliveries } from '../lib/delivery'
+import { deliver, deliverStrict, MAX_PENDING_DELIVERIES, pendingDeliveries } from '../src/core/delivery'
 
 /** A scripted terminal: records every write in order, and shows a parked paste until an Enter arrives. */
 function fakeRuntime(options: { parkedMarker?: string; gone?: Set<string> } = {}) {

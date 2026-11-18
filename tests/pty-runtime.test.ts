@@ -1,6 +1,6 @@
 import os from 'os'
 import { afterEach, describe, expect, it } from 'vitest'
-import { PtyRuntime } from '../lib/pty-runtime'
+import { PtyRuntime } from '../src/runtime/pty-runtime'
 
 const runtime = new PtyRuntime()
 const activeSessions = new Set<string>()

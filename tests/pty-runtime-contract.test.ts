@@ -43,13 +43,13 @@ vi.mock('node-pty', () => ({
 }))
 
 // No real taskkill against made-up pids.
-vi.mock('../lib/win-process', async importOriginal => ({
-  ...(await importOriginal<typeof import('../lib/win-process')>()),
+vi.mock('../src/runtime/win-process', async importOriginal => ({
+  ...(await importOriginal<typeof import('../src/runtime/win-process')>()),
   killProcessTree: vi.fn(async () => {}),
   killProcessTreeSync: vi.fn(),
 }))
 
-import { MAX_LISTENERS, MAX_SCROLLBACK, PtyRuntime } from '../lib/pty-runtime'
+import { MAX_LISTENERS, MAX_SCROLLBACK, PtyRuntime } from '../src/runtime/pty-runtime'
 
 describe('PtyRuntime contract', () => {
   let runtime: PtyRuntime

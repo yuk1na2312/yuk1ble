@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam } from '../src/types'
 import { bootServer } from './helpers/boot-server'
 
 /** POST /api/ensemble/teams against the real server: validation and the 202 contract. */

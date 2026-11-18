@@ -11,11 +11,8 @@
 
 import fs from 'fs'
 import path from 'path'
-import { fileURLToPath } from 'url'
 import type http from 'http'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.join(__dirname, '..')
+import { REPO_ROOT } from '../repo-root'
 
 export const WEB_ROOT = path.join(REPO_ROOT, 'web')
 

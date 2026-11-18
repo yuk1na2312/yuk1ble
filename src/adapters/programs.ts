@@ -5,8 +5,8 @@
  */
 
 import { listAgentPrograms } from './agent-config'
-import { findOnPath } from './win-process'
-import type { AgentModel } from '../types/agent-program'
+import { findOnPath } from '../runtime/win-process'
+import type { AgentModel } from './types'
 
 export interface ProgramInfo {
   name: string

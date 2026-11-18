@@ -2,8 +2,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
-import type { LogEntry } from '../lib/log-buffer'
+import type { EnsembleMessage, EnsembleTeam } from '../src/types'
+import type { LogEntry } from '../src/server/log-buffer'
 
 describe('event bus', () => {
   const saved = { data: process.env.ENSEMBLE_DATA_DIR, runtime: process.env.ENSEMBLE_RUNTIME_DIR }
@@ -31,8 +31,8 @@ describe('event bus', () => {
   })
 
   it('the store emits `team` after create and update, with the new state', async () => {
-    const { bus } = await import('../lib/bus')
-    const store = await import('../lib/ensemble-registry')
+    const { bus } = await import('../src/core/bus')
+    const store = await import('../src/core/store')
     const seen: EnsembleTeam[] = []
     bus.on('team', team => seen.push(team))
 
@@ -48,8 +48,8 @@ describe('event bus', () => {
   })
 
   it('the store emits `message` after the message is readable, with its seq, and not for a repeated id', async () => {
-    const { bus } = await import('../lib/bus')
-    const store = await import('../lib/ensemble-registry')
+    const { bus } = await import('../src/core/bus')
+    const store = await import('../src/core/store')
     const seen: Array<{ seq?: number; readable: boolean }> = []
     bus.on('message', m => seen.push({ seq: m.seq, readable: store.getMessages(m.teamId, (m.seq ?? 0) - 1).some(x => x.id === m.id) }))
 
@@ -61,8 +61,8 @@ describe('event bus', () => {
   })
 
   it('a throwing listener neither stops the others nor breaks the mutation', async () => {
-    const { bus } = await import('../lib/bus')
-    const store = await import('../lib/ensemble-registry')
+    const { bus } = await import('../src/core/bus')
+    const store = await import('../src/core/store')
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const later = vi.fn()
     bus.on('message', () => { throw new Error('boom') })
@@ -74,8 +74,8 @@ describe('event bus', () => {
   })
 
   it('unsubscribe stops delivery', async () => {
-    const { bus } = await import('../lib/bus')
-    const store = await import('../lib/ensemble-registry')
+    const { bus } = await import('../src/core/bus')
+    const store = await import('../src/core/store')
     const listener = vi.fn()
     const off = bus.on('message', listener)
     store.appendMessage('t1', newMessage('m1'))
@@ -85,8 +85,8 @@ describe('event bus', () => {
   })
 
   it('the log buffer emits `log` for console output, and a logging listener cannot recurse', async () => {
-    const { bus } = await import('../lib/bus')
-    const logBuffer = await import('../lib/log-buffer')
+    const { bus } = await import('../src/core/bus')
+    const logBuffer = await import('../src/server/log-buffer')
     const original = { log: console.log, warn: console.warn, error: console.error }
     try {
       logBuffer.installLogCapture()

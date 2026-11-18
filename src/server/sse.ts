@@ -17,9 +17,9 @@
  */
 
 import type http from 'http'
-import { bus } from './bus'
-import { getRuntime } from './agent-runtime'
-import { isAllowedOrigin, sendJson } from './http-guard'
+import { bus } from '../core/bus'
+import { getRuntime } from '../runtime/agent-runtime'
+import { isAllowedOrigin, sendJson } from './guard'
 
 export const MAX_SSE_CONNECTIONS = 32
 export const HEARTBEAT_MS = 20_000

@@ -4,10 +4,10 @@
 
 import fs from 'fs'
 import path from 'path'
-import { getTeam, getMessages } from './ensemble-registry'
+import { getTeam, getMessages } from './store'
 import { getAgentTokenUsage } from './agent-spawner'
 import { agentSessionName } from './session-name'
-import { getFeedFile } from './ensemble-paths'
+import { getFeedFile } from './data-paths'
 import { collabSummaryFile, scrubCollabRuntimePaths } from './collab-paths'
 import { EXPLICIT_DONE_SENTINEL } from './prompts'
 

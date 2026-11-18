@@ -4,12 +4,12 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { clearAgentsConfigCache } from '../lib/agent-config'
+import { clearAgentsConfigCache } from '../src/adapters/agent-config'
 import {
   resolveStartCommand,
   shellEscape,
   toPowerShellCommandLine,
-} from '../lib/agent-spawner'
+} from '../src/core/agent-spawner'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 

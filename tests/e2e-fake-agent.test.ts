@@ -6,7 +6,7 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam } from '../src/types'
 
 /**
  * The whole stack with a fake agent CLI (tests/fixtures/fake-agent.mjs): the real server, the real
@@ -130,7 +130,7 @@ describe('a team of fake agents, end to end', () => {
     })
 
     vi.resetModules()
-    await import('../server')
+    await import('../src/server/index')
     await until('the server to answer', async () => {
       try { return (await fetch(`${baseUrl}/api/v1/health`)).ok } catch { return false }
     }, 15_000)

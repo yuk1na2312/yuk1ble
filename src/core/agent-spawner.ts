@@ -6,16 +6,13 @@
 
 import { randomUUID } from 'crypto'
 import path from 'path'
-import { fileURLToPath } from 'url'
-import { getRuntime } from './agent-runtime'
-import { buildAgentCommandParts, requireAgentProgram, resolveAgentProgram } from './agent-config'
-import { quotePowerShell } from './win-process'
+import { REPO_ROOT } from '../repo-root'
+import { getRuntime } from '../runtime/agent-runtime'
+import { buildAgentCommandParts, requireAgentProgram, resolveAgentProgram } from '../adapters/agent-config'
+import { quotePowerShell } from '../runtime/win-process'
 
 // Kept under its old name for existing callers and tests.
 export { quotePowerShell as shellEscape }
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const REPO_ROOT = path.resolve(__dirname, '..')
 
 export interface SpawnedAgent {
   id: string

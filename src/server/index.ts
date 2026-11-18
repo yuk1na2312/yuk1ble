@@ -4,12 +4,12 @@
  */
 
 import http from 'http'
-import { setRuntime } from './lib/agent-runtime'
-import { PtyRuntime } from './lib/pty-runtime'
-import { installLogCapture } from './lib/log-buffer'
-import { disbandLiveTeamsOnBoot } from './lib/ensemble-registry'
-import { loadAgentsConfig } from './lib/agent-config'
-import { createRequestHandler } from './lib/http-routes'
+import { setRuntime } from '../runtime/agent-runtime'
+import { PtyRuntime } from '../runtime/pty-runtime'
+import { installLogCapture } from './log-buffer'
+import { disbandLiveTeamsOnBoot } from '../core/store'
+import { loadAgentsConfig } from '../adapters/agent-config'
+import { createRequestHandler } from './routes'
 
 installLogCapture()
 

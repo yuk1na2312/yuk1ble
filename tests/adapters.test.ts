@@ -3,9 +3,9 @@ import os from 'os'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resolveAgentProgram, clearAgentsConfigCache } from '../lib/agent-config'
-import { MAX_GATE_ATTEMPTS, waitForReady } from '../lib/readiness'
-import { ensureSubmitted } from '../lib/paste-submit'
+import { resolveAgentProgram, clearAgentsConfigCache } from '../src/adapters/agent-config'
+import { MAX_GATE_ATTEMPTS, waitForReady } from '../src/core/readiness'
+import { ensureSubmitted } from '../src/core/paste-submit'
 import {
   CLAUDE_READY_SCREEN, CLAUDE_TRUST_SCREEN, CODEX_HOOKS_GATE_SCREEN, CODEX_READY_SCREEN,
 } from './fixtures/screens'
@@ -42,8 +42,8 @@ afterEach(() => {
 })
 
 async function spawner(screen?: (session: string, lines?: number) => string) {
-  vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => ({ screen })), setRuntime: vi.fn() }))
-  return import('../lib/agent-spawner')
+  vi.doMock('../src/runtime/agent-runtime', () => ({ getRuntime: vi.fn(() => ({ screen })), setRuntime: vi.fn() }))
+  return import('../src/core/agent-spawner')
 }
 
 describe('start command: cwd and repo-root flags come from the adapter', () => {

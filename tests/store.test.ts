@@ -2,7 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam } from '../src/types'
 
 /**
  * The in-memory store against real files in a temp data dir. Each test gets a
@@ -16,7 +16,7 @@ describe('registry store', () => {
 
   const feedFile = () => path.join(root, 'ensemble', 'messages', teamId, 'feed.jsonl')
   const legacyFile = () => path.join(root, 'runtime', teamId, 'messages.jsonl')
-  const load = () => import('../lib/ensemble-registry')
+  const load = () => import('../src/core/store')
 
   function msg(id: string, extra: Partial<EnsembleMessage> = {}): EnsembleMessage {
     return {

@@ -17,15 +17,15 @@
 import http from 'http'
 import fs from 'fs'
 import { spawn } from 'child_process'
-import { fileURLToPath } from 'url'
 import path from 'path'
-import type { EnsembleMessage } from '../types/ensemble'
+import { REPO_ROOT } from '../repo-root'
+import type { EnsembleMessage } from '../types'
 
 const API_BASE = process.env.ENSEMBLE_URL || `http://localhost:${process.env.ENSEMBLE_PORT || '23000'}`
 
 // Resolve package root (works both in dev and when installed via npm)
-const __cli_filename = fileURLToPath(import.meta.url)
-const ENSEMBLE_ROOT = process.env.ENSEMBLE_ROOT || path.resolve(path.dirname(__cli_filename), '..')
+const ENSEMBLE_ROOT = process.env.ENSEMBLE_ROOT || REPO_ROOT
+const SERVER_ENTRY = path.join(ENSEMBLE_ROOT, 'src', 'server', 'index.ts')
 
 function findTsx(): string {
   // Check local node_modules first (npm installed package)
@@ -238,7 +238,7 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     await apiGet('/api/v1/health')
   } catch {
     process.stderr.write(`  ${c.dim}Starting server...${c.r}\n`)
-    serverProc = spawn(findTsx(), [path.join(ENSEMBLE_ROOT, 'server.ts')], {
+    serverProc = spawn(findTsx(), [SERVER_ENTRY], {
       cwd: ENSEMBLE_ROOT, stdio: 'ignore', detached: true,
     })
     serverProc.unref()
@@ -390,7 +390,7 @@ switch (cmd) {
       console.log(`  ${c.bGreen}●${c.r} Server already running at ${c.dim}${API_BASE}${c.r}`)
     } catch {
       console.log(`  ${c.dim}Starting ensemble server...${c.r}`)
-      const srv = spawn(findTsx(), [path.join(ENSEMBLE_ROOT, 'server.ts')], {
+      const srv = spawn(findTsx(), [SERVER_ENTRY], {
         cwd: ENSEMBLE_ROOT, stdio: 'inherit',
       })
       srv.on('exit', code => process.exit(code || 0))

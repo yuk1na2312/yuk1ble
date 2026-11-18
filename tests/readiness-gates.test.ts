@@ -13,15 +13,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { resolveReadyMarkers, clearAgentsConfigCache } from '../lib/agent-config'
-import { matchReadyMarker, endsAtShellPrompt, isQuiescentReady } from '../lib/pane-readiness'
-import type { EnsembleTeam } from '../types/ensemble'
+import { resolveReadyMarkers, clearAgentsConfigCache } from '../src/adapters/agent-config'
+import { matchReadyMarker, endsAtShellPrompt, isQuiescentReady } from '../src/core/pane-readiness'
+import type { EnsembleTeam } from '../src/types'
 import {
   CLAUDE_READY_SCREEN, CLAUDE_TRUST_SCREEN, CODEX_HOOKS_GATE_SCREEN, CODEX_READY_SCREEN, POWERSHELL_PROMPT_SCREEN,
 } from './fixtures/screens'
 
 /** createEnsembleTeam answers 202 at once; startup then runs on, and `completion` is its end. */
-async function createAndWait(mod: typeof import('../services/ensemble-service'), request: unknown) {
+async function createAndWait(mod: typeof import('../src/core/team-lifecycle'), request: unknown) {
   const result = await mod.createEnsembleTeam(request)
   expect(result.status).toBe(202)
   await result.completion
@@ -155,7 +155,7 @@ describe('startup gate auto-confirm', () => {
       onData: vi.fn(() => () => {}),
     }
 
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../src/core/store', () => ({
       createTeam: vi.fn(() => team),
       getTeam: vi.fn(() => team),
       updateTeam: vi.fn(() => team),
@@ -163,13 +163,13 @@ describe('startup gate auto-confirm', () => {
       appendMessage: vi.fn(),
       getMessages: vi.fn(() => []),
     }))
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(async () => ({ id: 'agent-id' })),
       killLocalAgent: vi.fn(),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
-    vi.doMock('../lib/collab-paths', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({ getRuntime: vi.fn(() => runtime) }))
+    vi.doMock('../src/core/collab-paths', () => ({
       ensureCollabDirs: vi.fn(),
       scrubCollabRuntimePaths: vi.fn((s: string) => s),
       collabPromptFile: vi.fn((t: string, a: string) => path.join(tempRoot, `${t}-${a}.prompt.txt`)),
@@ -179,7 +179,7 @@ describe('startup gate auto-confirm', () => {
       collabFinishedMarker: vi.fn((t: string) => path.join(tempRoot, `${t}.finished`)),
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../src/core/team-lifecycle')
     return { mod, team, runtime, sendKeysCalls, pasteCalls }
   }
 

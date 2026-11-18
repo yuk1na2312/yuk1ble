@@ -2,7 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { EnsembleMessage, EnsembleTeam, StagedWorkflowConfig } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam, StagedWorkflowConfig } from '../src/types'
 
 const TMP_ENSEMBLE_DIR = path.join(os.tmpdir(), 'ensemble')
 let sigintListeners = process.listeners('SIGINT')
@@ -32,7 +32,7 @@ afterEach(() => {
   }
 })
 
-type EnsembleService = typeof import('../services/ensemble-service')
+type EnsembleService = typeof import('../src/core/team-lifecycle')
 
 /** createEnsembleTeam answers 202 at once; startup then runs on, and `completion` is its end. */
 async function createAndWait(mod: EnsembleService, request: unknown) {
@@ -124,7 +124,7 @@ describe('getMessages() — dual store merge', () => {
     const msg = makeMessage({ id: 'feed-only', teamId, content: 'from feed' })
     writeJsonl(path.join(feedDir, 'feed.jsonl'), [msg])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId)
 
     expect(result).toHaveLength(1)
@@ -137,7 +137,7 @@ describe('getMessages() — dual store merge', () => {
     const msg = makeMessage({ id: 'tmp-only', teamId, content: 'from tmp' })
     writeJsonl(tmpFile, [msg])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId)
 
     expect(result).toHaveLength(1)
@@ -153,7 +153,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: 'tmp-msg', teamId, timestamp: '2026-01-01T10:00:01.000Z' }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId)
 
     expect(result).toHaveLength(2)
@@ -170,7 +170,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: sharedId, teamId, content: 'from tmp', timestamp: '2026-01-01T10:00:00.000Z' }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId)
 
     const matching = result.filter(m => m.id === sharedId)
@@ -186,7 +186,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: 'no-ts', teamId, timestamp: undefined as unknown as string }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId)
 
     expect(result.map(m => m.id)).toEqual(['early', 'late', 'no-ts'])
@@ -199,7 +199,7 @@ describe('getMessages() — dual store merge', () => {
       makeMessage({ id: 'new', teamId, timestamp: '2026-01-01T12:00:00.000Z' }),
     ])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId, '2026-01-01T11:00:00.000Z')
 
     expect(result).toHaveLength(1)
@@ -207,7 +207,7 @@ describe('getMessages() — dual store merge', () => {
   })
 
   it('returns empty array when no files exist', async () => {
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages('nonexistent-team-xyz')
     expect(result).toEqual([])
   })
@@ -220,7 +220,7 @@ describe('getMessages() — dual store merge', () => {
     writeJsonl(path.join(feedDir, 'feed.jsonl'), [msg])
     writeJsonl(path.join(TMP_ENSEMBLE_DIR, teamId, 'messages.jsonl'), [msg])
 
-    const { getMessages } = await import('../lib/ensemble-registry')
+    const { getMessages } = await import('../src/core/store')
     const result = getMessages(teamId)
 
     // Should be deduplicated to 1 message
@@ -262,10 +262,10 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
     vi.useRealTimers()
     vi.restoreAllMocks()
     vi.resetModules()
-    vi.doUnmock('../lib/ensemble-registry')
-    vi.doUnmock('../lib/agent-spawner')
-    vi.doUnmock('../lib/agent-runtime')
-    vi.doUnmock('../lib/agent-config')
+    vi.doUnmock('../src/core/store')
+    vi.doUnmock('../src/core/agent-spawner')
+    vi.doUnmock('../src/runtime/agent-runtime')
+    vi.doUnmock('../src/adapters/agent-config')
     if (originalDataDir === undefined) {
       delete process.env.ENSEMBLE_DATA_DIR
     } else {
@@ -276,7 +276,7 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
 
   async function setupServiceWithMocks(team: EnsembleTeam, messages: EnsembleMessage[]) {
     const appendedMessages: EnsembleMessage[] = []
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../src/core/store', () => ({
       getMessages: vi.fn(() => messages),
       loadTeams: vi.fn(() => [team]),
       appendMessage: vi.fn((_id: string, msg: EnsembleMessage) => appendedMessages.push(msg)),
@@ -285,12 +285,12 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
       getTeam: vi.fn(() => team),
       saveTeams: vi.fn(),
     }))
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(),
       killLocalAgent: vi.fn(),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
         screen: vi.fn(() => ''),
         sendKeys: vi.fn(),
@@ -299,18 +299,18 @@ describe('shouldAutoDisband() — tested via checkIdleTeams()', () => {
         onData: vi.fn(() => () => {}),
       })),
     }))
-    vi.doMock('../lib/agent-config', () => ({
+    vi.doMock('../src/adapters/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../src/core/team-lifecycle')
     return { mod, appendedMessages }
   }
 
   // The sentinel is evaluated on the bus 'message' event, not by the 15 s idle timer.
   async function emitSentinelOnBus(message: EnsembleMessage) {
-    const { bus } = await import('../lib/bus')
+    const { bus } = await import('../src/core/bus')
     bus.emit('message', message)
     // The disband is deferred one microtask so later listeners see this message first.
     await Promise.resolve()
@@ -600,7 +600,7 @@ describe('worktree isolation lifecycle', () => {
     const mergeWorktree = vi.fn(async () => ({ success: true }))
     const destroyWorktree = vi.fn(async () => {})
 
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../src/core/store', () => ({
       createTeam,
       getTeam,
       updateTeam,
@@ -608,18 +608,18 @@ describe('worktree isolation lifecycle', () => {
       appendMessage,
       getMessages: vi.fn(() => []),
     }))
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent,
       killLocalAgent,
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
-    vi.doMock('../lib/worktree-manager', () => ({
+    vi.doMock('../src/core/worktrees', () => ({
       createWorktree,
       mergeWorktree,
       destroyWorktree,
       listTeamWorktrees: vi.fn(async () => []),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({
       getRuntime: vi.fn(() => ({
         screen: vi.fn(() => '>'),
         sendKeys: vi.fn(() => {}),
@@ -628,11 +628,11 @@ describe('worktree isolation lifecycle', () => {
         onData: vi.fn(() => () => {}),
       })),
     }))
-    vi.doMock('../lib/agent-config', () => ({
+    vi.doMock('../src/adapters/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
     }))
-    vi.doMock('../lib/collab-paths', () => ({
+    vi.doMock('../src/core/collab-paths', () => ({
       ensureCollabDirs: vi.fn(),
       collabPromptFile: vi.fn((teamId: string, agentName: string) => path.join(tempRoot, `${teamId}-${agentName}.prompt.txt`)),
       collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
@@ -640,7 +640,7 @@ describe('worktree isolation lifecycle', () => {
       collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../src/core/team-lifecycle')
     return {
       mod,
       team,
@@ -798,7 +798,7 @@ describe('staged workflow integration', () => {
     }
     const runStagedWorkflow = vi.fn(async () => {})
 
-    vi.doMock('../lib/ensemble-registry', () => ({
+    vi.doMock('../src/core/store', () => ({
       createTeam: vi.fn(() => team),
       getTeam: vi.fn(() => team),
       updateTeam: vi.fn((_id: string, updates: Partial<EnsembleTeam>) => ({ ...team, ...updates })),
@@ -806,7 +806,7 @@ describe('staged workflow integration', () => {
       appendMessage: vi.fn(),
       getMessages: vi.fn(() => []),
     }))
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(async ({ name, program, workingDirectory }) => ({
         id: `${name}-id`,
         name,
@@ -817,30 +817,30 @@ describe('staged workflow integration', () => {
       killLocalAgent: vi.fn(async () => {}),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({
       getRuntime: vi.fn(() => runtime),
     }))
-    vi.doMock('../lib/agent-config', () => ({
+    vi.doMock('../src/adapters/agent-config', () => ({
       resolveAgentProgram: vi.fn(() => ({ readyMarker: '>', inputMethod: 'sendKeys' })),
       resolveReadyMarkers: vi.fn(() => ['>']),
     }))
-    vi.doMock('../lib/collab-paths', () => ({
+    vi.doMock('../src/core/collab-paths', () => ({
       ensureCollabDirs: vi.fn(),
       collabPromptFile: vi.fn((teamId: string, agentName: string) => path.join(tempRoot, `${teamId}-${agentName}.prompt.txt`)),
       collabSummaryFile: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.summary.txt`)),
       collabRuntimeDir: vi.fn((teamId: string) => path.join(tempRoot, teamId)),
       collabFinishedMarker: vi.fn((teamId: string) => path.join(tempRoot, `${teamId}.finished`)),
     }))
-    vi.doMock('../lib/worktree-manager', () => ({
+    vi.doMock('../src/core/worktrees', () => ({
       createWorktree: vi.fn(),
       mergeWorktree: vi.fn(async () => ({ success: true })),
       destroyWorktree: vi.fn(async () => {}),
     }))
-    vi.doMock('../lib/staged-workflow', () => ({
+    vi.doMock('../src/core/staged-workflow', () => ({
       runStagedWorkflow,
     }))
 
-    const mod = await import('../services/ensemble-service')
+    const mod = await import('../src/core/team-lifecycle')
     return { mod, runtime, runStagedWorkflow }
   }
 
@@ -909,7 +909,7 @@ describe('staged workflow integration', () => {
 // ─────────────────────────────────────────────────────
 describe('CreateTeamRequest staged types', () => {
   it('staged field is optional and defaults behavior', () => {
-    const request: import('../types/ensemble').CreateTeamRequest = {
+    const request: import('../src/types').CreateTeamRequest = {
       name: 'test',
       description: 'test',
       agents: [{ program: 'codex' }],
@@ -924,7 +924,7 @@ describe('CreateTeamRequest staged types', () => {
   })
 
   it('staged field defaults to undefined (opt-in)', () => {
-    const request: import('../types/ensemble').CreateTeamRequest = {
+    const request: import('../src/types').CreateTeamRequest = {
       name: 'test',
       description: 'test',
       agents: [{ program: 'codex' }],

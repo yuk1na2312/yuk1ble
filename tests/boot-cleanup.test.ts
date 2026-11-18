@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { EnsembleTeam } from '../types/ensemble'
+import type { EnsembleTeam } from '../src/types'
 import { bootServer } from './helpers/boot-server'
 
 describe('server boot cleanup', () => {

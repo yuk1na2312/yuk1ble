@@ -5,11 +5,11 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { EnsembleTeam, EnsembleMessage } from '../types/ensemble'
-import { getTeam, updateTeam, loadTeams, appendMessage, getMessages } from './ensemble-registry'
-import { getRuntime } from './agent-runtime'
-import { resolveAgentProgram } from './agent-config'
-import { AgentWatchdog } from './agent-watchdog'
+import type { EnsembleTeam, EnsembleMessage } from '../types'
+import { getTeam, updateTeam, loadTeams, appendMessage, getMessages } from './store'
+import { getRuntime } from '../runtime/agent-runtime'
+import { resolveAgentProgram } from '../adapters/agent-config'
+import { AgentWatchdog } from './watchdog'
 import { bus } from './bus'
 import { EXPLICIT_DONE_SENTINEL } from './prompts'
 import { formatDuration } from './summary'

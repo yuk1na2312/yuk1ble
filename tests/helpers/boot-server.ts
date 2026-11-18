@@ -9,7 +9,7 @@ import { vi } from 'vitest'
 export const FIXTURE_AGENTS_CONFIG = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'agents.json')
 
 /**
- * Boots the real server.ts on an ephemeral port with a temp data dir, real store
+ * Boots the real src/server/index.ts on an ephemeral port with a temp data dir, real store
  * and real HTTP routes. Only the things that would start real agent CLIs are
  * replaced: the spawner and the PTY runtime. The server keeps listening until
  * its test worker exits, like the onboarding smoke test.
@@ -85,17 +85,17 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
   options.seed?.(tempRoot)
 
   vi.resetModules()
-  vi.doMock('../../lib/agent-spawner', () => ({
+  vi.doMock('../../src/core/agent-spawner', () => ({
     spawnLocalAgent,
     killLocalAgent: vi.fn(async () => {}),
     getAgentTokenUsage: vi.fn(async () => 'unknown'),
   }))
-  vi.doMock('../../lib/agent-runtime', () => ({
+  vi.doMock('../../src/runtime/agent-runtime', () => ({
     getRuntime: vi.fn(() => runtime),
     setRuntime: vi.fn(),
   }))
 
-  await import('../../server')
+  await import('../../src/server/index')
 
   const startedAt = Date.now()
   for (;;) {
@@ -113,7 +113,7 @@ export async function bootServer(options: { seed?: (dataRoot: string) => void } 
     pty,
     spawnLocalAgent,
     /** The same store module instance the running server uses. */
-    store: () => import('../../lib/ensemble-registry'),
+    store: () => import('../../src/core/store'),
     restore: () => {
       process.env = saved
       vi.resetModules()

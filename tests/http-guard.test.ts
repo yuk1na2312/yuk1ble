@@ -1,7 +1,7 @@
 import http from 'http'
 import net from 'net'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { isAllowedHost, MAX_BODY_BYTES } from '../lib/http-guard'
+import { isAllowedHost, MAX_BODY_BYTES } from '../src/server/guard'
 import { bootServer } from './helpers/boot-server'
 
 interface RawResponse { status: number; headers: http.IncomingHttpHeaders; body: string }

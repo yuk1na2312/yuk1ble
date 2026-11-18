@@ -5,32 +5,32 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, ServiceResult } from '../types/ensemble'
+import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, ServiceResult } from '../types'
 import {
   createTeam, getTeam, updateTeam, loadTeams,
   appendMessage, getMessages,
-} from '../lib/ensemble-registry'
-import { spawnLocalAgent, killLocalAgent } from '../lib/agent-spawner'
-import { getRuntime } from '../lib/agent-runtime'
-import { deliverStrict } from '../lib/delivery'
-import { resolveAgentProgram, resolveReadyMarkers, listProgramNames, resolveAgentModels, isValidModel } from '../lib/agent-config'
-import { waitForReady as waitForReadyScreen } from '../lib/readiness'
+} from './store'
+import { spawnLocalAgent, killLocalAgent } from './agent-spawner'
+import { getRuntime } from '../runtime/agent-runtime'
+import { deliverStrict } from './delivery'
+import { resolveAgentProgram, resolveReadyMarkers, listProgramNames, resolveAgentModels, isValidModel } from '../adapters/agent-config'
+import { waitForReady as waitForReadyScreen } from './readiness'
 import {
   collabPromptFile, collabRuntimeDir, collabFinishedMarker, ensureCollabDirs,
-} from '../lib/collab-paths'
+} from './collab-paths'
 import fs from 'fs'
 import path from 'path'
-import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from '../lib/worktree-manager'
-import { runStagedWorkflow } from '../lib/staged-workflow'
-import { buildPromptPreview } from '../lib/prompts'
-import { writeDisbandSummary } from '../lib/summary'
-import { TeamSupervisor } from '../lib/team-supervisor'
-import { agentNameFor, agentSessionName, computeSessionName, sanitizeSessionPart } from '../lib/session-name'
+import { createWorktree, mergeWorktree, destroyWorktree, type WorktreeInfo } from './worktrees'
+import { runStagedWorkflow } from './staged-workflow'
+import { buildPromptPreview } from './prompts'
+import { writeDisbandSummary } from './summary'
+import { TeamSupervisor } from './team-supervisor'
+import { agentNameFor, agentSessionName, computeSessionName, sanitizeSessionPart } from './session-name'
 
 // The pieces that used to live here; callers and tests keep importing them from the service.
-export { loadCollabTemplate, buildPromptPreview } from '../lib/prompts'
-export { writeDisbandSummary } from '../lib/summary'
-export { sendTeamMessage, type SendMessageResult } from '../lib/messaging'
+export { loadCollabTemplate, buildPromptPreview } from './prompts'
+export { writeDisbandSummary } from './summary'
+export { sendTeamMessage, type SendMessageResult } from './messaging'
 
 const supervisor = new TeamSupervisor(teamId => disbandTeam(teamId))
 

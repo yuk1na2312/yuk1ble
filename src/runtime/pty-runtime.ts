@@ -5,7 +5,7 @@ import type { Terminal as HeadlessTerminal } from '@xterm/headless'
 import * as pty from 'node-pty'
 import type { AgentRuntime, SendKeysOptions, SessionInfo } from './agent-runtime'
 import { findOnPath, killProcessTree, killProcessTreeSync } from './win-process'
-import { listAgentPrograms } from './agent-config'
+import { listAgentPrograms } from '../adapters/agent-config'
 
 const { Terminal } = headless
 

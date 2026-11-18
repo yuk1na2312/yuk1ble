@@ -11,8 +11,8 @@
  *   - a paste is followed by `ensureSubmitted`: a paste alone never submits.
  */
 
-import { getRuntime } from './agent-runtime'
-import type { AgentRuntime } from './agent-runtime'
+import { getRuntime } from '../runtime/agent-runtime'
+import type { AgentRuntime } from '../runtime/agent-runtime'
 import { ensureSubmitted } from './paste-submit'
 
 /** Deliveries waiting or running per session; the next one is dropped. */

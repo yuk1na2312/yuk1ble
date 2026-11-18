@@ -37,7 +37,7 @@ describe('SSE', () => {
     vi.useRealTimers()
     for (const client of clients.splice(0)) client.close()
     // The server notices a closed client a moment later; the next test must start from nothing open.
-    const { sseConnectionCount } = await import('../lib/sse')
+    const { sseConnectionCount } = await import('../src/server/sse')
     await vi.waitFor(() => expect(sseConnectionCount()).toBe(0))
   })
   afterAll(() => {
@@ -97,7 +97,7 @@ describe('SSE', () => {
     })
   }
 
-  const bus = () => import('../lib/bus').then(m => m.bus)
+  const bus = () => import('../src/core/bus').then(m => m.bus)
   const decode = (base64: string): string => Buffer.from(base64, 'base64').toString('utf8')
   const settled = (ms = 80) => new Promise(resolve => setTimeout(resolve, ms))
 

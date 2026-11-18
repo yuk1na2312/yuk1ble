@@ -3,10 +3,10 @@ import type {
   EnsembleTeam,
   EnsembleTeamAgent,
   StagedWorkflowConfig,
-} from '../types/ensemble'
-import { appendMessage, getMessages } from './ensemble-registry'
+} from '../types'
+import { appendMessage, getMessages } from './store'
 import { deliverStrict } from './delivery'
-import { resolveAgentProgram } from './agent-config'
+import { resolveAgentProgram } from '../adapters/agent-config'
 import { agentSessionName } from './session-name'
 
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000

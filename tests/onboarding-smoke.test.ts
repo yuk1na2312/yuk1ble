@@ -72,7 +72,7 @@ describe('onboarding smoke test', () => {
     process.env.ENSEMBLE_AGENTS_CONFIG = FIXTURE_AGENTS_CONFIG
 
     vi.resetModules()
-    vi.doMock('../lib/agent-spawner', () => ({
+    vi.doMock('../src/core/agent-spawner', () => ({
       spawnLocalAgent: vi.fn(async ({ name, program, workingDirectory }) => ({
         id: `${name}-id`,
         name,
@@ -83,12 +83,12 @@ describe('onboarding smoke test', () => {
       killLocalAgent: vi.fn(async () => {}),
       getAgentTokenUsage: vi.fn(async () => 'unknown'),
     }))
-    vi.doMock('../lib/agent-runtime', () => ({
+    vi.doMock('../src/runtime/agent-runtime', () => ({
       getRuntime: vi.fn(() => runtime),
       setRuntime: vi.fn(),
     }))
 
-    await import('../server')
+    await import('../src/server/index')
     await waitForHealthy(baseUrl)
   })
 

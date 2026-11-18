@@ -1,8 +1,8 @@
 import { randomUUID } from 'crypto'
-import type { AgentRuntime } from './agent-runtime'
+import type { AgentRuntime } from '../runtime/agent-runtime'
 import { deliverStrict } from './delivery'
 import { agentSessionName } from './session-name'
-import type { EnsembleMessage, EnsembleTeam } from '../types/ensemble'
+import type { EnsembleMessage, EnsembleTeam } from '../types'
 
 const DEFAULT_POLL_INTERVAL_MS = 30_000
 const DEFAULT_NUDGE_MS = 90_000
