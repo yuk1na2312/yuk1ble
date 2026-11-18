@@ -198,7 +198,8 @@ describe('registry store', () => {
       expect(messages.map(m => m.seq)).toEqual([1, 2])
     })
 
-    it('keeps only the newest 5000 messages in memory and leaves the rest on disk', async () => {
+    // 5,025 synchronous appends to the feed file: about 1 s alone, over 5 s while the suite runs in parallel.
+    it('keeps only the newest 5000 messages in memory and leaves the rest on disk', { timeout: 20_000 }, async () => {
       const store = await load()
       const total = store.MAX_MESSAGES_PER_TEAM + 25
       for (let i = 1; i <= total; i++) store.appendMessage(teamId, msg(`m${i}`))

@@ -27,7 +27,11 @@ afterEach(async () => {
   }))
 })
 
-describe('PtyRuntime screen()', () => {
+// These spawn a real PowerShell, which can take several seconds to reach its prompt under
+// ConPTY; the 5 s default test timeout cut waitForCapture's own 10 s window short.
+const REAL_SHELL = { timeout: 30_000 }
+
+describe('PtyRuntime screen()', REAL_SHELL, () => {
   it('returns the rendered screen without ANSI redraw artifacts', async () => {
     const sessionName = `capture-pane-${process.pid}-${Date.now()}`
     activeSessions.add(sessionName)
@@ -81,7 +85,7 @@ describe('PtyRuntime screen()', () => {
   })
 })
 
-describe('PtyRuntime environment', () => {
+describe('PtyRuntime environment', REAL_SHELL, () => {
   it('withholds what the adapters list in stripEnv and passes everything else', async () => {
     const saved = { key: process.env.OPENAI_API_KEY, visible: process.env.ENSEMBLE_ENV_PROBE }
     process.env.OPENAI_API_KEY = 'sk-secret-probe'
