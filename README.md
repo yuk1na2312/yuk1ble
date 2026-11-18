@@ -197,6 +197,8 @@ See [`.env.example`](.env.example) and [AGENTS.md](AGENTS.md) for every variable
 
 ## Documentation
 
+- [docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md) — how to start, use, configure and
+  debug ensemble, step by step, with a troubleshooting list.
 - [AGENTS.md](AGENTS.md) — project context, commands, every environment variable, and the
   gotchas each live run exposed. `CLAUDE.md` imports it, so Claude Code and Codex read the
   same file.

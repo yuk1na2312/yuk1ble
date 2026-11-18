@@ -36,6 +36,9 @@ has been removed rather than gated.
   never polled. Messages carry a per-team `seq`; `src/core/bus.ts` announces `team`, `message`
   and `log` events. The CLI is a pure HTTP client — there is no second process per team.
 
+For a step-by-step manual (start, use, configure, troubleshoot) see
+[docs/DEVELOPER-GUIDE.md](docs/DEVELOPER-GUIDE.md).
+
 ## Current state
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
