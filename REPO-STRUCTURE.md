@@ -59,7 +59,7 @@ ensemble-win/
 │  └─ cli/ensemble.ts           CLI (pure HTTP client): status, run, steer, disband, team-say, team-read
 ├─ web/                         monitoring GUI: index.html, app.css, ES modules in js/ (teams, transcript, live PTY panes, server log)
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       409 tests / 31 files (+ helpers/, fixtures/)
+├─ tests/                       410 tests / 31 files (+ helpers/, fixtures/)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -81,7 +81,7 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 409 passed / 31 files |
+| `npx vitest run` | 410 passed / 31 files |
 | `npx tsx src/server/index.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---

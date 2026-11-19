@@ -37,6 +37,9 @@ interface Feed {
 
 const teams = new Map<string, EnsembleTeam>()
 const feeds = new Map<string, Feed>() // insertion order doubles as LRU order
+// shortcut: one id per purge kept for the process lifetime, to drop a straggling append (a late
+// delivery failure, a watchdog note) that would recreate a purged team's feed; upgrade if purges become bulk.
+const purged = new Set<string>()
 let teamsLoaded = false
 let teamsDirty = false
 let teamsTimer: NodeJS.Timeout | undefined
@@ -181,6 +184,7 @@ export function deleteTeam(id: string): string[] {
   }
   teams.delete(id)
   feeds.delete(id)
+  purged.add(id)
   teamsDirty = true
   flushStore()
   bus.emit('team-removed', { id })
@@ -292,6 +296,7 @@ function loadFeed(teamId: string): Feed {
 
 /** Append to a team's feed. Assigns `message.seq`; a repeated id is ignored. */
 export function appendMessage(teamId: string, message: EnsembleMessage): void {
+  if (purged.has(teamId)) return
   const feed = loadFeed(teamId)
   const key = dedupeKey(message)
   if (message.id && feed.ids.has(key)) return

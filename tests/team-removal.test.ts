@@ -124,6 +124,16 @@ describe('archiveTeam / purgeTeam / store.deleteTeam', () => {
       expect(fs.existsSync(runtimeDir(kept.id))).toBe(true)
     })
 
+    it('drops a message that arrives after the purge instead of recreating the feed', async () => {
+      const { store, lifecycle } = await setup()
+      const team = makeTeam(store, { status: 'disbanded', archivedAt: new Date().toISOString() })
+      await lifecycle.purgeTeam(team.id)
+
+      store.appendMessage(team.id, { id: 'late', teamId: team.id, from: 'ensemble', to: 'team', content: 'late', type: 'chat', timestamp: new Date().toISOString() })
+
+      expect(fs.existsSync(feedDir(team.id))).toBe(false)
+    })
+
     it('stays removed after a restart', async () => {
       const { store, lifecycle } = await setup()
       const team = makeTeam(store, { status: 'disbanded', archivedAt: new Date().toISOString() })
