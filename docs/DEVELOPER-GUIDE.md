@@ -234,7 +234,7 @@ node bin\ensemble.cjs <command>     # what agents run; also works from any folde
 | Command | What it does |
 |---|---|
 | `status` | Server health and number of teams. |
-| `teams` (or `ls`) | List teams with status, agents, start time and the **first 8 characters** of the id. |
+| `teams` (or `ls`) | List teams with status, agents, start time and the full team id. |
 | `run "task" [--agents p[:model],p[:model]] [--timeout 600]` | Create a team in the current folder and follow its feed. Starts the server if it is not running. |
 | `steer <team-id> <message>` | Send a message to the whole team as `user`. |
 | `team-say <team-id> <from> <to> <message>` | Send a message. `to` is an agent name or `team`. Prints `Sent to <to>`. |
@@ -253,9 +253,8 @@ node bin\ensemble.cjs team-read 6f1c2a9e-0000-0000-0000-000000000000
 
 Things to know:
 
-- **`steer`, `team-say` and `team-read` need the full team id** (a UUID). The short id that
-  `teams` and `run` print gives `404 Team not found`. Get the full id from the GUI address bar
-  (`#team=<id>`) or from the API: `(Invoke-RestMethod http://localhost:23000/api/ensemble/teams).teams | Select-Object name, id, status`.
+- **Commands take the full team id** (a UUID), as `teams` and `run` print it. A shortened id
+  gives `404 Team not found`. The GUI address bar (`#team=<id>`) shows it too.
 - Without `--agents`, `run` takes the first two installed programs in `agents.json` order.
   `--agents` needs at least two entries. `program:model` must name a model from that program's
   list, otherwise the answer is a 400 and nothing starts.

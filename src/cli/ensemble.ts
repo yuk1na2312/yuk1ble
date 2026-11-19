@@ -206,7 +206,7 @@ async function cmdTeams() {
         `  ${statusIcon}${c.r} ${c.bold}${t.name}${c.r}` +
         `  ${agents}` +
         `  ${c.dim}${time}${c.r}` +
-        `  ${c.gray}${t.id.slice(0, 8)}${c.r}`
+        `  ${c.gray}${t.id}${c.r}` // in full: every other command needs the whole id
       )
       console.log(`    ${c.dim}${t.description.slice(0, 80)}${c.r}`)
       console.log()
@@ -306,7 +306,7 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
 
   console.log(`\n  ${c.bold}${c.bWhite}◈ ensemble run${c.r}`)
   console.log(`  ${c.dim}${task.slice(0, 100)}${c.r}`)
-  console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId.slice(0, 8)}${c.r} created with ${agentNames.join(' + ')} ${c.dim}(agents are starting)${c.r}`)
+  console.log(`  ${c.bGreen}●${c.r} Team ${c.dim}${teamId}${c.r} created with ${agentNames.join(' + ')} ${c.dim}(agents are starting)${c.r}`)
   console.log(`  ${c.dim}Timeout: ${timeoutSec}s${c.r}\n`)
 
   // 4. Follow the team's feed over HTTP until it is disbanded or the timeout hits.
@@ -431,7 +431,7 @@ switch (cmd) {
   ${c.bold}Examples:${c.r}
     ${c.dim}ensemble run "refactor auth module" --agents <program>:<model>,<program>${c.r}
     ${c.dim}ensemble run "fix all lint errors" --timeout 300${c.r}
-    ${c.dim}ensemble steer abc123 "focus on security review"${c.r}
+    ${c.dim}ensemble steer <team-id> "focus on security review"${c.r}
     ${c.dim}ensemble teams${c.r}
 `)
     break
