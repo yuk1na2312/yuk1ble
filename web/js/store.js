@@ -10,6 +10,8 @@ export const state = {
   /** id -> team */
   teams: new Map(),
   selectedId: null,
+  /** Whether archived teams are listed in the rail. */
+  showArchived: false,
   /** 'connecting' | 'live' | 'reconnecting' */
   connection: 'connecting',
 }
@@ -37,6 +39,13 @@ export function upsertTeam(team) {
   state.teams.set(team.id, team)
   emit('teams', team)
   if (team.id === state.selectedId) emit('selected-updated', team)
+}
+
+/** A team was purged: forget it, and leave it if it was the selected one. */
+export function removeTeam(id) {
+  if (!state.teams.delete(id)) return
+  emit('teams', undefined)
+  if (id === state.selectedId) select(null)
 }
 
 /** Replace all teams (initial load and reconnect). */

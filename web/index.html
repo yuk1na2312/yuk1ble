@@ -24,6 +24,7 @@
     <nav aria-label="Team list">
       <ul id="team-list" class="team-list"></ul>
       <p id="team-empty" class="empty" hidden>No teams yet. Start one and its agents show up here.</p>
+      <button type="button" id="archived-toggle" class="quiet archived-toggle" aria-expanded="false" hidden></button>
     </nav>
   </aside>
 
@@ -45,7 +46,7 @@
   <aside id="side" aria-label="Conversation">
     <header class="side-head">
       <h2>Conversation</h2>
-      <span id="disband-slot" class="disband-slot"></span>
+      <span class="disband-slot"><span id="archive-slot" class="disband-slot"></span><span id="disband-slot" class="disband-slot"></span></span>
     </header>
     <div id="transcript-wrap" class="transcript-wrap">
       <ol id="transcript" class="transcript" aria-live="off"></ol>
@@ -123,6 +124,18 @@
       <button type="submit" id="nt-submit" class="primary">Start team</button>
     </footer>
   </form>
+</dialog>
+
+<dialog id="purge-dialog" class="confirm-dialog" aria-labelledby="purge-title" aria-describedby="purge-text">
+  <div class="confirm-body">
+    <h2 id="purge-title">Purge this run?</h2>
+    <p id="purge-text"></p>
+    <p id="purge-error" class="form-error" role="alert"></p>
+    <footer class="dialog-foot">
+      <button type="button" id="purge-cancel" class="quiet" autofocus>Cancel</button>
+      <button type="button" id="purge-confirm" class="danger">Purge</button>
+    </footer>
+  </div>
 </dialog>
 
 <script type="module" src="/js/main.js"></script>

@@ -3,13 +3,14 @@
 
 import { $ } from './dom.js'
 import * as api from './api.js'
+import { initArchive } from './archive.js'
 import { startEvents } from './events.js'
 import { initLog, backfillLog } from './log.js'
 import { initNewTeam } from './new-team.js'
 import { initTeams } from './teams.js'
 import { initTerminals } from './terminals.js'
 import { initTranscript, resumeAfterReconnect } from './transcript.js'
-import { on, select, setTeams, state, teamsNewestFirst, upsertTeam } from './store.js'
+import { on, removeTeam, select, setTeams, state, teamsNewestFirst, upsertTeam } from './store.js'
 
 const CONNECTION_TEXT = { connecting: 'Connecting', live: 'Live', reconnecting: 'Reconnecting' }
 
@@ -42,6 +43,7 @@ async function resync(reconnected) {
 
 function boot() {
   initTeams()
+  initArchive()
   initTranscript()
   initTerminals()
   initNewTeam()
@@ -49,6 +51,7 @@ function boot() {
 
   on('connection', paintConnection)
   on('event:team', upsertTeam)
+  on('event:team-removed', ({ id }) => removeTeam(id))
   on('stream-open', ({ reconnected }) => {
     resync(reconnected).catch(err => console.error('Could not load the page data', err))
   })

@@ -127,8 +127,11 @@ input::placeholder, textarea::placeholder { color: #85808f; }
 #rail nav { flex: 1; min-height: 0; overflow: auto; margin-top: 12px; border-top: 1px solid var(--line); }
 .team-list { list-style: none; margin: 0; padding: 0; }
 .team-list li { border-bottom: 1px solid var(--line); }
-.team-list li[data-status="disbanded"] { opacity: .55; }
-.team-list li[data-status="disbanded"]:hover, .team-list li:has([aria-current="true"]) { opacity: 1; }
+.team-list li[data-status="disbanded"], .team-list li[data-archived] { opacity: .55; }
+.team-list li[data-status="disbanded"]:hover, .team-list li[data-archived]:hover, .team-list li:has([aria-current="true"]) { opacity: 1; }
+
+.archived-toggle { display: block; width: 100%; text-align: left; padding: 10px 14px; border-radius: 0; }
+.archived-toggle[hidden] { display: none; }
 
 .team-row {
   display: block; width: 100%; text-align: left;
@@ -230,7 +233,7 @@ input::placeholder, textarea::placeholder { color: #85808f; }
 
 .side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 14px; min-height: 52px; border-bottom: 1px solid var(--line); }
 .side-head h2 { font-size: 15px; }
-.disband-slot { display: inline-flex; align-items: center; }
+.disband-slot { display: inline-flex; align-items: center; gap: 6px; }
 .confirm { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
 
 .transcript-wrap { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -302,6 +305,15 @@ input::placeholder, textarea::placeholder { color: #85808f; }
 .checks { display: grid; gap: 6px; }
 .checks label { display: flex; align-items: center; gap: 8px; }
 .dialog-foot { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-dialog {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  padding: 0; width: min(440px, calc(100vw - 24px));
+}
+.confirm-dialog::backdrop { background: #09080cb8; }
+.confirm-body { display: grid; gap: 12px; padding: 18px 20px 16px; }
+.confirm-body h2 { font-size: 18px; }
+.confirm-body p { margin: 0; overflow-wrap: anywhere; }
 
 /* ── narrow windows: stack the three columns ──────────────────────────── */
 

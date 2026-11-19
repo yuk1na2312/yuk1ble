@@ -35,6 +35,9 @@ export const createTeam = async payload => (await post(`${BASE}/teams`, payload)
 export const sendMessage = (teamId, to, content) =>
   post(`${BASE}/teams/${encodeURIComponent(teamId)}`, { to, from: 'user', content })
 export const disbandTeam = teamId => post(`${BASE}/teams/${encodeURIComponent(teamId)}/disband`, {})
+export const archiveTeam = (teamId, archived) => post(`${BASE}/teams/${encodeURIComponent(teamId)}/archive`, { archived })
+/** Resolves to { ok, warnings }; erases an archived team for good. */
+export const purgeTeam = teamId => post(`${BASE}/teams/${encodeURIComponent(teamId)}/purge`, {})
 
 export const sessionUrl = (sessionName, suffix) => `${BASE}/sessions/${encodeURIComponent(sessionName)}/${suffix}`
 export const postInput = (sessionName, data) => post(sessionUrl(sessionName, 'input'), { data })

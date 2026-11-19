@@ -43,7 +43,7 @@ For a step-by-step manual (start, use, configure, troubleshoot) see
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
 live PTY panes, teardown kills the full process tree. `npm run typecheck`, `npm run lint`
-and `npm test` (385 tests / 30 files) are green. What remains is repeated real-world use.
+and `npm test` (409 tests / 31 files) are green. What remains is repeated real-world use.
 
 ---
 
@@ -62,7 +62,7 @@ src/
     static.ts             serves web/ and the three fixed /vendor xterm files, nothing else
     log-buffer.ts         tees console.* into a ring buffer for GET /api/ensemble/logs
   core/                   business logic; runtime-agnostic, talks to terminals via getRuntime()
-    team-lifecycle.ts     team validation, start and disband
+    team-lifecycle.ts     team validation, start, disband, archive and purge
     store.ts              in-memory store: teams, per-team feed (seq, 5,000-message cap) + persistence log
     bus.ts                typed event bus: `team`, `message`, `log`
     messaging.ts          sendTeamMessage: into the feed, then delivered in the background
@@ -92,7 +92,7 @@ src/
   cli/
     ensemble.ts           CLI entrypoint (status, run, steer, disband, team-say, team-read) — pure HTTP client
 web/                      monitoring GUI, served at `/`: index.html, app.css and ES modules in js/
-                          (api, events, store, teams, terminals, transcript, new-team, log, main);
+                          (api, archive, events, store, teams, terminals, transcript, new-team, log, main);
                           vanilla JS, no build step; xterm.js comes from /vendor/xterm/*
 bin/                      ensemble.cjs (CLI shim) + postinstall.cjs (node-pty check)
 agents.json               one adapter per agent CLI: command, flags, cwdFlag/addDirFlag, readyMarkers,
@@ -121,7 +121,8 @@ allow; no Origin (CLI, curl) is fine. Bodies over 1 MB are a 413.
 | `GET /api/ensemble/teams`, `GET …/teams/:id`, `GET …/teams/:id/feed?since=<seq>` | state, served from memory |
 | `POST /api/ensemble/teams` | create a team; **202** at once |
 | `POST …/teams/:id` (message), `POST …/teams/:id/disband`, `DELETE …/teams/:id` | talk to / end a team |
-| `GET /api/ensemble/events[?team=<id>]` | SSE: `team`, `message`, `log` (JSON); `?team` limits `message` |
+| `POST …/teams/:id/archive` `{ archived }`, `POST …/teams/:id/purge` | hide/restore an ended team; erase an archived one for good (409 on a live team, or on purge unless archived; returns `{ ok, warnings }`) |
+| `GET /api/ensemble/events[?team=<id>]` | SSE: `team`, `team-removed` (`{id}`), `message`, `log` (JSON); `?team` limits `message` |
 | `GET /api/ensemble/sessions/:name/stream` | SSE: `replay` once (base64 scrollback), then `data` (base64 PTY chunks), then `exit` |
 | `POST /api/ensemble/sessions/:name/input` | `{ data }`: raw bytes (max 64 KB) typed into an agent's terminal |
 | `POST /api/ensemble/sessions/:name/resize` | `{ cols, rows }` (20–400, 5–200) |

@@ -37,7 +37,7 @@ export function startEvents() {
     }
   })
 
-  for (const type of ['team', 'message', 'log']) {
+  for (const type of ['team', 'team-removed', 'message', 'log']) {
     source.addEventListener(type, event => {
       const data = parse(event)
       if (data) emit(`event:${type}`, data)

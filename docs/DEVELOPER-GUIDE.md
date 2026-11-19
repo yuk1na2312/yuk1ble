@@ -218,6 +218,14 @@ recipient's terminal.
 Disbanding writes the summary, kills every agent's whole process tree and marks the team
 `ended`.
 
+**Archive and purge.** Once a team is not running, the header also offers **Archive**: the team
+leaves the list and sits behind a **Show N archived** toggle under it. Nothing is deleted, and
+**Restore** puts it back. An archived team also offers **Purge**, which opens a confirmation
+naming the run and counting its messages; confirming erases the team record, its feed
+(`<data dir>ensemblemessages<team-id>`) and its runtime dir (`%TEMP%ensemble<team-id>`) for good.
+A file that cannot be deleted is reported as a warning. Worktrees of a run are not removed.
+Or from PowerShell: `Invoke-RestMethod -Method Post -ContentType application/json -Body '{"archived":true}' http://localhost:23000/api/ensemble/teams/<team-id>/archive`.
+
 **Server log** shows what the server prints to its console. Open it first when something
 looks wrong.
 
@@ -825,7 +833,9 @@ table is also in `AGENTS.md`.
 | `POST /api/ensemble/teams` | Create a team. Answers **202** at once; agents start in the background |
 | `POST /api/ensemble/teams/:id` | Send a message `{ "from", "to", "content" }`. `to` is an agent name or `team`; `from` defaults to `user` |
 | `POST /api/ensemble/teams/:id/disband`, `DELETE /api/ensemble/teams/:id` | End a team |
-| `GET /api/ensemble/events[?team=<id>]` | SSE: `team`, `message`, `log` events (JSON) |
+| `POST /api/ensemble/teams/:id/archive` | `{ "archived": true|false }`. Hides / restores a team that is not `active` or `forming` (409 otherwise). Deletes nothing |
+| `POST /api/ensemble/teams/:id/purge` | Erases an archived team: its record, feed and runtime dir. 404 unknown, 400 id not a UUID, 409 live or not archived. Answers `{ "ok": true, "warnings": [] }` |
+| `GET /api/ensemble/events[?team=<id>]` | SSE: `team`, `team-removed` (`{ id }`), `message`, `log` events (JSON) |
 | `GET /api/ensemble/sessions/:name/stream` | SSE of one terminal: `replay`, then `data` (base64), then `exit` |
 | `POST /api/ensemble/sessions/:name/input` | `{ "data": "..." }` raw keystrokes, at most 64 KB |
 | `POST /api/ensemble/sessions/:name/resize` | `{ "cols": 120, "rows": 40 }` (cols 20-400, rows 5-200) |

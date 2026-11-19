@@ -26,13 +26,13 @@ ensemble-win/
 │  │  ├─ index.ts               boot file: config, runtime, listen on 23000
 │  │  ├─ routes.ts              every HTTP route and the GUI at /, behind the guard
 │  │  ├─ guard.ts               Host + Origin checks, body cap, CORS headers, JSON helpers
-│  │  ├─ sse.ts                 SSE: team/message/log events, per-session terminal stream
+│  │  ├─ sse.ts                 SSE: team/team-removed/message/log events, per-session terminal stream
 │  │  ├─ static.ts              serves web/ and the fixed /vendor xterm files
 │  │  └─ log-buffer.ts          tees console.* into a ring buffer for the GUI log pane
 │  ├─ core/                     business logic, runtime-agnostic on purpose
-│  │  ├─ team-lifecycle.ts      team validation, start and disband
+│  │  ├─ team-lifecycle.ts      team validation, start, disband, archive and purge
 │  │  ├─ store.ts               in-memory team + message store; files are a persistence log
-│  │  ├─ bus.ts                 typed event bus: team, message, log
+│  │  ├─ bus.ts                 typed event bus: team, team-removed, message, log
 │  │  ├─ messaging.ts           sendTeamMessage: feed first, terminal delivery in the background
 │  │  ├─ delivery.ts            deliver(): queue, paste, submit — the one way text reaches an agent
 │  │  ├─ paste-submit.ts        ensureSubmitted() — a paste alone never submits
@@ -59,7 +59,7 @@ ensemble-win/
 │  └─ cli/ensemble.ts           CLI (pure HTTP client): status, run, steer, disband, team-say, team-read
 ├─ web/                         monitoring GUI: index.html, app.css, ES modules in js/ (teams, transcript, live PTY panes, server log)
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       385 tests / 30 files (+ helpers/, fixtures/)
+├─ tests/                       409 tests / 31 files (+ helpers/, fixtures/)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -81,7 +81,7 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 385 passed / 30 files |
+| `npx vitest run` | 409 passed / 31 files |
 | `npx tsx src/server/index.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---

@@ -35,9 +35,10 @@ function buildRow(team) {
 
 function paintRow(row, team) {
   row.name.textContent = team.name
-  row.status.textContent = statusLabel(team.status)
+  row.status.textContent = team.archivedAt ? 'archived' : statusLabel(team.status)
   row.status.dataset.status = team.status
   row.li.dataset.status = team.status
+  row.li.toggleAttribute('data-archived', Boolean(team.archivedAt))
   const signature = team.agents.map(a => `${a.name}|${a.program}|${a.status}`).join(',')
   if (row.chips.dataset.signature !== signature) {
     row.chips.dataset.signature = signature
@@ -48,8 +49,16 @@ function paintRow(row, team) {
 
 function render() {
   const list = $('team-list')
-  const teams = teamsNewestFirst()
-  $('team-empty').hidden = teams.length > 0
+  const all = teamsNewestFirst()
+  const archived = all.filter(t => t.archivedAt).length
+  if (archived === 0) state.showArchived = false
+  // The selected team stays listed even when archived, so archiving it does not make it vanish under the cursor.
+  const teams = all.filter(t => !t.archivedAt || state.showArchived || t.id === state.selectedId)
+  $('team-empty').hidden = all.length > 0
+  const toggle = $('archived-toggle')
+  toggle.hidden = archived === 0
+  toggle.textContent = state.showArchived ? 'Hide archived' : `Show ${archived} archived`
+  toggle.setAttribute('aria-expanded', String(state.showArchived))
 
   const wanted = new Set(teams.map(t => t.id))
   for (const [id, row] of rows) {
@@ -71,6 +80,10 @@ function render() {
 }
 
 export function initTeams() {
+  $('archived-toggle').addEventListener('click', () => {
+    state.showArchived = !state.showArchived
+    render()
+  })
   on('teams', render)
   on('selected', render)
   render()

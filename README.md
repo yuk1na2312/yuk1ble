@@ -82,6 +82,12 @@ The same page then shows everything: the team list, the live agent-to-agent tran
 real terminal per agent (you can type into it to answer a prompt), and the server log. Steer
 the team or one agent from the box under the transcript, and disband from the team header.
 
+**Clearing out old runs.** An ended run can be archived: it moves behind a **Show N archived**
+toggle under the team list, nothing is deleted, and **Restore** brings it straight back (disband a
+run first; a running one cannot be archived). **Purge**, offered only on an archived run, erases it
+for good: the team record, its messages and the files of its run. Its confirmation names the run
+and counts the messages it is about to destroy.
+
 ### Option B — headless, one command
 
 Starts the server if it isn't up, creates the team, and tails the conversation until the
@@ -216,7 +222,9 @@ authentication**. Don't expose it. A request whose `Host` is not a loopback name
 | `POST /api/ensemble/teams` | Create a team; answers 202, startup continues in the background |
 | `POST /api/ensemble/teams/:id` | Send a message `{ from, to, content }` (`to`: a name or `team`) |
 | `POST /api/ensemble/teams/:id/disband`, `DELETE /api/ensemble/teams/:id` | End a team |
-| `GET /api/ensemble/events[?team=<id>]` | Server-Sent Events: `team`, `message` and `log` as JSON |
+| `POST /api/ensemble/teams/:id/archive` | `{ "archived": true|false }`: hide or restore an ended team; nothing is deleted. 409 on a running team |
+| `POST /api/ensemble/teams/:id/purge` | Erase an archived team for good (record, messages, run files): `{ ok, warnings }`. 409 unless archived and ended |
+| `GET /api/ensemble/events[?team=<id>]` | Server-Sent Events: `team`, `team-removed`, `message` and `log` as JSON |
 | `GET /api/ensemble/sessions/:name/stream` | Server-Sent Events of one terminal: `replay`, then `data` (base64 raw output), then `exit` |
 | `POST /api/ensemble/sessions/:name/input` | Type into an agent's terminal: `{ "data": "..." }`, at most 64 KB |
 | `POST /api/ensemble/sessions/:name/resize` | `{ "cols": 120, "rows": 40 }` |
