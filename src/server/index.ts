@@ -3,6 +3,7 @@
  * in routes.ts, the request guard in guard.ts.
  */
 
+import '../load-env' // first: the modules below read their settings while they load
 import http from 'http'
 import { setRuntime } from '../runtime/agent-runtime'
 import { PtyRuntime } from '../runtime/pty-runtime'

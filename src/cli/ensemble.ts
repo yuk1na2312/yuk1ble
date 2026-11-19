@@ -14,6 +14,7 @@
  * live in the server process, and a second registry here would always be empty.
  */
 
+import '../load-env' // first, so ENSEMBLE_URL / ENSEMBLE_PORT from .env reach API_BASE
 import http from 'http'
 import fs from 'fs'
 import { spawn } from 'child_process'

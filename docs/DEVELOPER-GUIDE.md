@@ -94,18 +94,18 @@ prerequisite list and a non-zero exit. See [6.3](#63-npm-install-fails-building-
 Every setting is an environment variable. The full list is in [section 7.2](#72-environment-variables).
 `.env.example` in the repository root lists them with comments.
 
-The server does **not read a `.env` file by itself**: nothing in `src/` or `package.json`
-loads one, and `npm run dev` does not either. Pick one of these:
+The server and the CLI load `.env` from the repository root when they start
+(`src/load-env.ts`, Node 20.12 or newer). A variable already set in the shell wins over the
+file. Pick one of these:
 
 ```powershell
-# A) Set variables in the shell that starts the server. They last for that shell only.
+# A) Keep them in a file: copy .env.example to .env, edit it, then:
+npm run dev
+
+# B) Set variables in the shell that starts the server. They last for that shell only.
 $env:ENSEMBLE_PORT = "23001"
 $env:ENSEMBLE_READY_TIMEOUT_MS = "240000"
 npm run dev
-
-# B) Keep them in a file and load it explicitly (Node 20.6 or newer).
-#    Copy .env.example to .env, edit it, then:
-npx tsx --env-file=.env src/server/index.ts
 ```
 
 `.env` is git-ignored. Do not commit it.
@@ -469,7 +469,7 @@ src/
   runtime/   the only door to a terminal: agent-runtime.ts (interface), pty-runtime.ts, win-process.ts
   adapters/  agents.json loader and types, program catalog
   cli/       ensemble.ts, a pure HTTP client
-  types.ts, repo-root.ts
+  types.ts, repo-root.ts, load-env.ts
 web/         the GUI: index.html, app.css, js/*.js (vanilla ES modules, no build step)
 bin/         ensemble.cjs (CLI shim that agents run), postinstall.cjs
 tests/       vitest; helpers/, fixtures/

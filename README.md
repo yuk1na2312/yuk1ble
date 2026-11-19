@@ -183,7 +183,7 @@ Watch a team from a shell: `curl.exe -N http://localhost:23000/api/ensemble/even
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust as needed. Key variables:
+Copy `.env.example` to `.env` and adjust as needed; the server and CLI load it at start, and a variable already set in the shell wins. Key variables:
 
 | Variable | Default | Description |
 |---|---|---|

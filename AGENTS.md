@@ -52,6 +52,7 @@ and `npm test` (380 tests / 29 files) are green. What remains is repeated real-w
 ```
 src/
   repo-root.ts            REPO_ROOT: the one place a path is computed from a file's location
+  load-env.ts             loads <repo>/.env; imported first by the server and the CLI
   types.ts                teams and messages
   server/                 the HTTP process
     index.ts              boot file: config, runtime, listen (port 23000)
@@ -177,7 +178,8 @@ CLI examples: `npx ensemble status`, `npx ensemble steer <team-id> "focus on the
 | `ENSEMBLE_IDLE_DISBAND_MS` | `3600000` (1h) | Silence before a team auto-disbands. Only the explicit `<<COLLAB_DONE>>` sentinel ends a run sooner — wording like "done" no longer does. |
 | `ENSEMBLE_CODEX_TRUST_HOOKS` | unset | (the `trustEnv` of codex's hooks gate in `agents.json`, read when the gate is answered). `1` answers Codex's "Hooks need review" gate with *Trust all*. Default answers *Continue without trusting* — ensemble must not authorize unreviewed hook code unattended. |
 
-Copy `.env.example` to `.env` before running.
+Copy `.env.example` to `.env` before running. The server and CLI load it at start
+(`src/load-env.ts`, Node 20.12+); a variable already set in the shell wins.
 
 ---
 

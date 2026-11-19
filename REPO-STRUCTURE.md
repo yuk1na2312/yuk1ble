@@ -20,6 +20,7 @@ ensemble-win/
 │
 ├─ src/
 │  ├─ repo-root.ts              REPO_ROOT: the one place a path is computed from a file's location
+│  ├─ load-env.ts               loads <repo>/.env; imported first by the server and the CLI
 │  ├─ types.ts                  teams and messages
 │  ├─ server/                   the HTTP process
 │  │  ├─ index.ts               boot file: config, runtime, listen on 23000
