@@ -197,8 +197,26 @@ describe('what leaves the module', () => {
     expect(serialized).toContain('dev@example.com')
   })
 
+  it('never shows a key captured by a loose pattern: an API-key login reports its method only', async () => {
+    const key = 'sk-proj-AbCdEf0123456789xyzXYZ'
+    mockCli(() => ({ stdout: `Logged in using an API key - ${key}` }))
+    expect(await statusOf('codex')).toEqual({ program: 'codex', state: 'signed-in', account: 'an API key' })
+
+    // A pattern edited to capture the whole line still cannot pass the key or a long token through.
+    const [loose] = Object.values(parseAgentsConfig({
+      loose: {
+        command: 'loose', readyMarkers: ['>'], inputMethod: 'sendKeys', color: '#112233', icon: '*',
+        account: { args: ['status'], text: { signedOut: 'not logged in', signedIn: 'logged in', account: ['logged in (.+)$'] } },
+      },
+    }))
+    vi.resetModules()
+    mockCli(() => ({ stdout: `logged in ${key} token ${'Q'.repeat(30)}` }))
+    const [status] = await (await load()).getAccountStatuses([loose])
+    expect(status.account).toBe('[redacted] token [redacted]')
+  })
+
   it('answers only the five known keys, each clipped to a bounded length', async () => {
-    mockCli(() => ({ stdout: JSON.stringify({ loggedIn: true, email: `${'a'.repeat(500)}@example.com` }) }))
+    mockCli(() => ({ stdout: JSON.stringify({ loggedIn: true, email: `${'a.'.repeat(250)}@example.com` }) }))
     const status = await statusOf('claude')
     expect(Object.keys(status).sort()).toEqual(['account', 'program', 'state'])
     expect(status.account?.length).toBe(200)

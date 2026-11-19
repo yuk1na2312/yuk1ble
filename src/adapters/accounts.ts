@@ -40,10 +40,19 @@ export function clearAccountsCache(): void {
   cache.clear()
 }
 
+/**
+ * Key-shaped text: an `sk-` key or a long unbroken run of key characters. account and plan are
+ * captured from CLI output by patterns anyone can edit in agents.json, so a loose pattern must not
+ * be able to carry a key to the browser (e.g. "Logged in using an API key - sk-…").
+ */
+const KEY_LIKE = /sk-[\w-]+|[A-Za-z0-9_+/=-]{24,}/g
+
 function build(program: string, state: AccountState, fields: { account?: string; plan?: string; detail?: string } = {}): AccountStatus {
   const status: AccountStatus = { program, state }
   for (const key of ['account', 'plan', 'detail'] as const) {
-    const value = fields[key]?.trim().slice(0, MAX_FIELD_CHARS)
+    let value = fields[key]?.trim()
+    if (value && key !== 'detail') value = value.replace(KEY_LIKE, '[redacted]')
+    value = value?.slice(0, MAX_FIELD_CHARS)
     if (value) status[key] = value
   }
   return status

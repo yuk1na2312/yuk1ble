@@ -30,7 +30,7 @@
       "text": {
         "signedOut": "not logged in",
         "signedIn": "logged in",
-        "account": ["([\\w.+-]+@[\\w-]+\\.[\\w.-]+)", "logged in using\\s+([^(\\n]+?)(?:\\s+account\\b|\\s*$)"],
+        "account": ["([\\w.+-]+@[\\w-]+\\.[\\w.-]+)", "logged in using\\s+([^(\\n]+?)(?:\\s+account\\b|\\s+-\\s|\\s*$)"],
         "plan": ["\\(([^)]+)\\)"]
       }
     },

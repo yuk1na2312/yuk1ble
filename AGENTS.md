@@ -43,7 +43,7 @@ For a step-by-step manual (start, use, configure, troubleshoot) see
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
 live PTY panes, teardown kills the full process tree. `npm run typecheck`, `npm run lint`
-and `npm test` (455 tests / 33 files) are green. What remains is repeated real-world use.
+and `npm test` (456 tests / 33 files) are green. What remains is repeated real-world use.
 
 ---
 
