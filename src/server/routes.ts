@@ -10,6 +10,7 @@ import {
 import { getRuntime } from '../runtime/agent-runtime'
 import { isLiveTeamSession } from '../core/store'
 import { getLogEntries } from './log-buffer'
+import { getAccountStatuses } from '../adapters/accounts'
 import { describePrograms } from '../adapters/programs'
 import { listCollabTemplates } from '../core/prompts'
 import { buildCorsHeaders, guardRequest, HttpError, readJsonBody, sendJson } from './guard'
@@ -96,6 +97,12 @@ export function createRequestHandler({ host, port, webRoot }: RequestHandlerOpti
       // Programs: the adapter catalog the GUI and CLI build their pickers from
       if (pathname === '/api/ensemble/programs' && method === 'GET') {
         return json(describePrograms())
+      }
+
+      // Accounts: read-only "who is signed in" per program. GET only on purpose: the API has no
+      // auth, so a logout route would be an unauthenticated curl that ends a paid session.
+      if (pathname === '/api/ensemble/accounts' && method === 'GET') {
+        return json(await getAccountStatuses())
       }
 
       // Templates: the collaboration presets the new-team form offers

@@ -9,7 +9,7 @@
 import fs from 'fs'
 import path from 'path'
 import { REPO_ROOT } from '../repo-root'
-import type { AgentGate, AgentModel, AgentProgram, AgentsConfig, AgentUsagePattern } from './types'
+import type { AgentAccount, AgentGate, AgentModel, AgentProgram, AgentsConfig, AgentUsagePattern } from './types'
 
 export class AgentConfigError extends Error {
   constructor(message: string) {
@@ -111,6 +111,70 @@ function parseModel(raw: unknown, where: string): AgentModel {
   return { id: raw.id, label: raw.label }
 }
 
+// The probe runs through cmd.exe (npm installs CLIs as .cmd shims), which re-parses its command line,
+// so the command and args may carry no metacharacter (& | < > ^ % " ' space ( ) ...), whatever the config says.
+const SAFE_COMMAND = /^[\w.-]+$/
+const SAFE_ARG = /^[\w.:=@+/\\-]+$/
+
+function parseAccount(raw: unknown, where: string, command: string): AgentAccount {
+  if (!isRecord(raw)) throw new AgentConfigError(`${where}: must be an object`)
+  if (raw.unsupported !== undefined) {
+    if (!nonBlank(raw.unsupported) || Object.keys(raw).length > 1) {
+      throw new AgentConfigError(`${where}: "unsupported" is a non-blank reason and stands alone`)
+    }
+    return { unsupported: raw.unsupported }
+  }
+
+  const args = stringArray(raw.args, `${where}.args`, { nonEmpty: true })
+  const unsafe = args.find(arg => !SAFE_ARG.test(arg))
+  if (unsafe !== undefined) {
+    throw new AgentConfigError(`${where}.args: ${JSON.stringify(unsafe)} may only use letters, digits and . _ - : = @ + / \\`)
+  }
+  if (!SAFE_COMMAND.test(command)) {
+    throw new AgentConfigError(`${where}: "command" ${JSON.stringify(command)} must be a bare name (letters, digits, . _ -) to be probed`)
+  }
+  if ((raw.json === undefined) === (raw.text === undefined)) {
+    throw new AgentConfigError(`${where}: give exactly one of "json" or "text"`)
+  }
+
+  const keys = (value: unknown, key: string, nonEmpty = false) =>
+    value === undefined && !nonEmpty ? [] : stringArray(value, `${where}.${key}`, { nonEmpty })
+  const patterns = (value: unknown, key: string) => {
+    const sources = keys(value, key)
+    for (const [i, source] of sources.entries()) {
+      compile(source, `${where}.${key}[${i}]`)
+      if (captureGroups(source) !== 1) throw new AgentConfigError(`${where}.${key}[${i}]: must have exactly one capture group`)
+    }
+    return sources
+  }
+
+  if (raw.json !== undefined) {
+    if (!isRecord(raw.json)) throw new AgentConfigError(`${where}.json: must be an object`)
+    return {
+      args,
+      json: {
+        signedIn: keys(raw.json.signedIn, 'json.signedIn', true),
+        account: keys(raw.json.account, 'json.account'),
+        plan: keys(raw.json.plan, 'json.plan'),
+      },
+    }
+  }
+  if (!isRecord(raw.text)) throw new AgentConfigError(`${where}.text: must be an object`)
+  for (const key of ['signedOut', 'signedIn'] as const) {
+    if (!nonBlank(raw.text[key])) throw new AgentConfigError(`${where}.text.${key}: is required (a regex source)`)
+    compile(raw.text[key], `${where}.text.${key}`)
+  }
+  return {
+    args,
+    text: {
+      signedOut: raw.text.signedOut as string,
+      signedIn: raw.text.signedIn as string,
+      account: patterns(raw.text.account, 'text.account'),
+      plan: patterns(raw.text.plan, 'text.plan'),
+    },
+  }
+}
+
 function parseProgram(name: string, raw: unknown): AgentProgram {
   const at = `program "${name}"`
   if (!isRecord(raw)) throw new AgentConfigError(`${at}: must be an object`)
@@ -182,6 +246,8 @@ function parseProgram(name: string, raw: unknown): AgentProgram {
       throw new AgentConfigError(`${at}: "models" needs a "modelFlag" to pass the chosen model`)
     }
   }
+
+  if (raw.account !== undefined) program.account = parseAccount(raw.account, `${at}: "account"`, program.command)
 
   if (raw.skillInvocation !== undefined) {
     if (!nonBlank(raw.skillInvocation)) throw new AgentConfigError(`${at}: "skillInvocation" must be a non-blank string`)

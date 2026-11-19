@@ -21,6 +21,8 @@ const base = {
   icon: '*',
 }
 const withEntry = (overrides: Record<string, unknown>) => ({ fake: { ...base, ...overrides } })
+const jsonSpec = { signedIn: ['loggedIn'], account: ['email'], plan: ['plan'] }
+const textSpec = { signedOut: 'not logged in', signedIn: 'logged in', account: ['(\\S+@\\S+)'], plan: ['\\((.+)\\)'] }
 
 describe('agents.json as shipped', () => {
   beforeEach(() => { delete process.env.ENSEMBLE_AGENTS_CONFIG; clearAgentsConfigCache() })
@@ -34,6 +36,7 @@ describe('agents.json as shipped', () => {
       expect(program.icon).toBeTruthy()
       expect(program.readyMarkers.length).toBeGreaterThan(0)
       for (const marker of program.readyMarkers) expect(marker.trim()).not.toBe('')
+      expect(program.account, `${program.name} account`).toBeDefined()
     }
   })
 })
@@ -42,6 +45,20 @@ describe('validation', () => {
   it('accepts a minimal entry and names it after its key', () => {
     const config = parseAgentsConfig(withEntry({}))
     expect(config.fake).toMatchObject({ name: 'fake', command: 'fake', flags: [], readyMarkers: ['fake> '] })
+  })
+
+  it('accepts a json account, a text account and an unsupported reason, and leaves it off by default', () => {
+    expect(parseAgentsConfig(withEntry({})).fake.account).toBeUndefined()
+    expect(parseAgentsConfig(withEntry({ account: { args: ['auth', 'status', '--json'], json: jsonSpec } })).fake.account)
+      .toEqual({ args: ['auth', 'status', '--json'], json: jsonSpec })
+    expect(parseAgentsConfig(withEntry({ account: { args: ['tests/fixtures/x.mjs'], text: textSpec } })).fake.account)
+      .toEqual({ args: ['tests/fixtures/x.mjs'], text: textSpec })
+    expect(parseAgentsConfig(withEntry({ account: { unsupported: 'No status command.' } })).fake.account)
+      .toEqual({ unsupported: 'No status command.' })
+    // account and plan are optional, and so is a command that is no bare name when nothing is probed
+    expect(parseAgentsConfig(withEntry({ account: { args: ['s'], json: { signedIn: ['ok'] } } })).fake.account)
+      .toEqual({ args: ['s'], json: { signedIn: ['ok'], account: [], plan: [] } })
+    expect(() => parseAgentsConfig(withEntry({ command: 'C:\\x y\\z.exe', account: { unsupported: 'no' } }))).not.toThrow()
   })
 
   it('still accepts the old single readyMarker, merged with readyMarkers without duplicates', () => {
@@ -75,6 +92,22 @@ describe('validation', () => {
     ['models without a modelFlag', withEntry({ models: [{ id: 'a', label: 'A' }] }), ['program "fake"', '"modelFlag"']],
     ['a model without a label', withEntry({ modelFlag: '--model', models: [{ id: 'a' }] }), ['models[0]']],
     ['a duplicate model id', withEntry({ modelFlag: '--model', models: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] }), ['duplicate id']],
+    ['an account that is not an object', withEntry({ account: 'yes' }), ['program "fake"', '"account"', 'must be an object']],
+    ['an account with a blank unsupported reason', withEntry({ account: { unsupported: ' ' } }), ['"account"', '"unsupported"']],
+    ['an unsupported account that also has args', withEntry({ account: { unsupported: 'no', args: ['x'] } }), ['"account"', 'stands alone']],
+    ['an account without args', withEntry({ account: { json: jsonSpec } }), ['"account"', 'args']],
+    ['an account with empty args', withEntry({ account: { args: [], json: jsonSpec } }), ['account', 'args', 'must not be empty']],
+    ['an account arg that can carry shell syntax', withEntry({ account: { args: ['status', '&', 'calc'], json: jsonSpec } }), ['account', 'args', '"&"']],
+    ['an account arg with a percent expansion', withEntry({ account: { args: ['%PATH%'], json: jsonSpec } }), ['account', 'args']],
+    ['an account on a command that is not a bare name', withEntry({ command: 'C:\\Program Files\\x.exe', account: { args: ['s'], json: jsonSpec } }), ['account', '"command"', 'bare name']],
+    ['an account with neither json nor text', withEntry({ account: { args: ['s'] } }), ['account', 'exactly one']],
+    ['an account with both json and text', withEntry({ account: { args: ['s'], json: jsonSpec, text: textSpec } }), ['account', 'exactly one']],
+    ['a json account with no signedIn keys', withEntry({ account: { args: ['s'], json: { account: ['email'] } } }), ['json.signedIn']],
+    ['a json account whose keys are not strings', withEntry({ account: { args: ['s'], json: { ...jsonSpec, plan: [1] } } }), ['json.plan']],
+    ['a text account without signedOut', withEntry({ account: { args: ['s'], text: { signedIn: 'in' } } }), ['text.signedOut']],
+    ['a text account whose regex does not compile', withEntry({ account: { args: ['s'], text: { ...textSpec, signedIn: '(' } } }), ['text.signedIn', 'invalid regex']],
+    ['a text account pattern with no capture group', withEntry({ account: { args: ['s'], text: { ...textSpec, account: ['\\w+'] } } }), ['text.account[0]', 'one capture group']],
+    ['a text account pattern with two capture groups', withEntry({ account: { args: ['s'], text: { ...textSpec, plan: ['(a)(b)'] } } }), ['text.plan[0]', 'one capture group']],
   ])('rejects %s, naming the program and the key', (_label, config, fragments) => {
     let error: unknown
     try { parseAgentsConfig(config) } catch (err) { error = err }

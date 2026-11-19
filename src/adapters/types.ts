@@ -36,6 +36,34 @@ export interface AgentModel {
   label: string
 }
 
+/** Reading the status subcommand's JSON: the first key of each list that holds a value of the right type wins. */
+export interface AgentAccountJson {
+  /** Keys of a boolean: true is signed in, false signed out. */
+  signedIn: string[]
+  /** Keys of a string. */
+  account: string[]
+  plan: string[]
+}
+
+/** Reading its plain text; every pattern is a case-insensitive regex source. */
+export interface AgentAccountText {
+  /** Checked first: a "not logged in" line also contains "logged in". */
+  signedOut: string
+  signedIn: string
+  /** Each has exactly one capture group; the first that matches wins. */
+  account: string[]
+  plan: string[]
+}
+
+/**
+ * How to ask the CLI who is signed in (read-only, GET /api/ensemble/accounts), or why it cannot say.
+ * `args` follow the program's `command`; only the fields named here ever leave the probe.
+ */
+export type AgentAccount =
+  | { unsupported: string }
+  | { args: string[]; json: AgentAccountJson }
+  | { args: string[]; text: AgentAccountText }
+
 export interface AgentProgram {
   /** The key in agents.json (e.g. "codex"). */
   name: string
@@ -65,6 +93,8 @@ export interface AgentProgram {
   modelFlag?: string
   /** The allowlist for per-agent model selection. No catalog means no picker. */
   models?: AgentModel[]
+  /** Account-status probe, or the reason there is none. Absent: reported as unsupported. */
+  account?: AgentAccount
   /** Reserved for the skill picker; unused. */
   skillInvocation?: string
   /** Environment variables (regex sources, case-insensitive) withheld from the shells agents run in. */

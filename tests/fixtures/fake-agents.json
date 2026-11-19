@@ -4,6 +4,10 @@
     "flags": ["tests/fixtures/fake-agent.mjs"],
     "readyMarkers": ["FAKE AGENT READY >"],
     "inputMethod": "pasteFromFile",
+    "account": {
+      "args": ["tests/fixtures/fake-account.mjs"],
+      "json": { "signedIn": ["loggedIn"], "account": ["email"], "plan": ["subscriptionType"] }
+    },
     "color": "#6aa9ff",
     "icon": "◆"
   },

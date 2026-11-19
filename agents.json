@@ -25,6 +25,15 @@
       { "pattern": "(\\d+)%\\s*left", "format": "$1% budget left" }
     ],
     "stripEnv": ["^OPENAI_(API_KEY|BASE_URL|ORGANIZATION)$"],
+    "account": {
+      "args": ["login", "status"],
+      "text": {
+        "signedOut": "not logged in",
+        "signedIn": "logged in",
+        "account": ["([\\w.+-]+@[\\w-]+\\.[\\w.-]+)", "logged in using\\s+([^(\\n]+?)(?:\\s+account\\b|\\s*$)"],
+        "plan": ["\\(([^)]+)\\)"]
+      }
+    },
     "modelFlag": "--model",
     "models": [{ "id": "gpt-5.6-sol", "label": "Sol" }],
     "color": "#6aa9ff",
@@ -59,6 +68,14 @@
       "^CLAUDECODE$",
       "^CLAUDE_(PID|EFFORT)$"
     ],
+    "account": {
+      "args": ["auth", "status", "--json"],
+      "json": {
+        "signedIn": ["loggedIn", "authenticated", "signedIn", "isAuthenticated"],
+        "account": ["email", "account", "user", "username"],
+        "plan": ["subscriptionType", "plan", "subscription", "tier"]
+      }
+    },
     "modelFlag": "--model",
     "models": [
       { "id": "fable", "label": "Fable 5" },
@@ -73,6 +90,7 @@
     "flags": [],
     "readyMarkers": ["❯"],
     "inputMethod": "sendKeys",
+    "account": { "unsupported": "aider has no CLI-queryable account status." },
     "color": "#c99ae3",
     "icon": "▲"
   },
@@ -82,6 +100,7 @@
     "readyMarkers": ["Type your message"],
     "inputMethod": "pasteFromFile",
     "stripEnv": ["^(GEMINI|GOOGLE)_API_KEY$"],
+    "account": { "unsupported": "No CLI-queryable auth status — sign in via /auth inside the interactive gemini TUI." },
     "color": "#e3c07b",
     "icon": "★"
   },
@@ -90,6 +109,7 @@
     "flags": [],
     "readyMarkers": ["Ask anything"],
     "inputMethod": "sendKeys",
+    "account": { "unsupported": "opencode has no CLI-queryable account status." },
     "color": "#6ed4d0",
     "icon": "▣"
   }
