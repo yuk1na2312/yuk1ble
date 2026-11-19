@@ -315,6 +315,25 @@ input::placeholder, textarea::placeholder { color: #85808f; }
 .confirm-body h2 { font-size: 18px; }
 .confirm-body p { margin: 0; overflow-wrap: anywhere; }
 
+/* ── accounts ─────────────────────────────────────────────────────────── */
+
+#open-accounts { margin: 6px 12px 0; text-align: left; }
+.accounts-dialog { width: min(520px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); }
+.dialog-actions { display: inline-flex; gap: 4px; }
+.acct-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.acct { padding: 9px 12px 10px; background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--voice, var(--line-strong)); border-radius: var(--radius); }
+.acct-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.acct-name { font-weight: 600; display: inline-flex; gap: 7px; }
+.acct-icon { color: var(--voice); }
+.acct-state { font-size: 12px; color: var(--dim); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.acct-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.acct-state[data-state="signed-in"] { color: var(--ok); }
+.acct-state[data-state="signed-out"] { color: var(--brass); }
+.acct-state[data-state="error"] { color: var(--err); }
+.acct-state[data-state="unsupported"]::before { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
+.acct-meta { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 4px; font: 12.5px var(--mono); overflow-wrap: anywhere; }
+.acct-detail { margin-top: 4px; color: var(--dim); font-size: 12.5px; overflow-wrap: anywhere; }
+
 /* ── narrow windows: stack the three columns ──────────────────────────── */
 
 @media (max-width: 999px) {

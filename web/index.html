@@ -21,6 +21,7 @@
       <span class="pip" aria-hidden="true"></span><span id="connection-text">Connecting</span>
     </div>
     <button type="button" id="open-new" class="primary wide">New team</button>
+    <button type="button" id="open-accounts" class="quiet" aria-haspopup="dialog">Accounts</button>
     <nav aria-label="Team list">
       <ul id="team-list" class="team-list"></ul>
       <p id="team-empty" class="empty" hidden>No teams yet. Start one and its agents show up here.</p>
@@ -124,6 +125,22 @@
       <button type="submit" id="nt-submit" class="primary">Start team</button>
     </footer>
   </form>
+</dialog>
+
+<dialog id="accounts-dialog" class="confirm-dialog accounts-dialog" aria-labelledby="accounts-title">
+  <div class="confirm-body">
+    <header class="dialog-head">
+      <h2 id="accounts-title">Accounts</h2>
+      <span class="dialog-actions">
+        <button type="button" id="accounts-refresh" class="quiet">Refresh</button>
+        <button type="button" id="accounts-close" class="quiet">Close</button>
+      </span>
+    </header>
+    <p class="hint">Who each program's CLI is signed in as, read from the CLI itself. Read-only, cached for a minute.</p>
+    <p id="accounts-note" class="hint" role="status"></p>
+    <ul id="accounts-list" class="acct-list"></ul>
+    <p id="accounts-error" class="form-error" role="alert"></p>
+  </div>
 </dialog>
 
 <dialog id="purge-dialog" class="confirm-dialog" aria-labelledby="purge-title" aria-describedby="purge-text">

@@ -23,7 +23,9 @@ const post = (path, payload) => request(path, {
 })
 
 export const getPrograms = () => request(`${BASE}/programs`)
-export const getTemplates = () => request(`${BASE}/templates`)
+/** [{ program, state, account?, plan?, detail? }]: read-only, there is no route to sign in or out. */
+export const getAccounts = () => request(`${BASE}/accounts`)
+export const getTemplates =() => request(`${BASE}/templates`)
 export const getTeams = async () => (await request(`${BASE}/teams`)).teams ?? []
 export const getFeed = async (teamId, since) =>
   (await request(`${BASE}/teams/${encodeURIComponent(teamId)}/feed${since ? `?since=${since}` : ''}`)).messages ?? []

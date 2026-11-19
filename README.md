@@ -88,6 +88,13 @@ run first; a running one cannot be archived). **Purge**, offered only on an arch
 for good: the team record, its messages and the files of its run. Its confirmation names the run
 and counts the messages it is about to destroy.
 
+**Accounts.** The **Accounts** button in the left column reports which account each agent CLI
+is signed in as. It asks the CLI itself (the `account` entry of its `agents.json` adapter, for
+example a `status` subcommand); a CLI with no such command says so rather than guessing. It is
+strictly read-only: ensemble never touches credential files and offers no sign-in or sign-out.
+Only a state, an account label and a plan label ever leave the server; raw CLI output is
+discarded, so a token in it cannot reach the browser. Answers are cached for a minute.
+
 ### Option B — headless, one command
 
 Starts the server if it isn't up, creates the team, and tails the conversation until the
@@ -217,6 +224,7 @@ authentication**. Don't expose it. A request whose `Host` is not a loopback name
 |---|---|
 | `GET /api/v1/health` | Liveness |
 | `GET /api/ensemble/programs` | The agent CLIs from `agents.json`: icon, colour, models, installed |
+| `GET /api/ensemble/accounts` | Read-only account status per program: `state` (`signed-in`, `signed-out`, `unsupported`, `error`), `account`, `plan`, `detail`. GET only, there is no sign-in or sign-out route |
 | `GET /api/ensemble/teams`, `GET /api/ensemble/teams/:id` | Teams (and one team's messages) |
 | `GET /api/ensemble/teams/:id/feed?since=<seq>` | Messages after `seq` |
 | `POST /api/ensemble/teams` | Create a team; answers 202, startup continues in the background |

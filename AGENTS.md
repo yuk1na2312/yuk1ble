@@ -43,7 +43,7 @@ For a step-by-step manual (start, use, configure, troubleshoot) see
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
 live PTY panes, teardown kills the full process tree. `npm run typecheck`, `npm run lint`
-and `npm test` (410 tests / 31 files) are green. What remains is repeated real-world use.
+and `npm test` (455 tests / 33 files) are green. What remains is repeated real-world use.
 
 ---
 
@@ -88,16 +88,18 @@ src/
     agent-config.ts       agents.json loader + validation, resolveAgentProgram (aliases, no fallback),
                           resolveReadyMarkers, isValidModel, buildAgentCommandParts(program, model?)
     programs.ts           describePrograms() behind GET /api/ensemble/programs (PATH lookup, cached 30 s)
+    accounts.ts           getAccountStatuses() behind GET /api/ensemble/accounts: runs each adapter's
+                          `account` status command, allowlisted result, 5 s timeout, cached 60 s
     types.ts              the agents.json schema types
   cli/
     ensemble.ts           CLI entrypoint (status, run, steer, disband, team-say, team-read) — pure HTTP client
 web/                      monitoring GUI, served at `/`: index.html, app.css and ES modules in js/
-                          (api, archive, events, store, teams, terminals, transcript, new-team, log, main);
+                          (accounts, api, archive, events, store, teams, terminals, transcript, new-team, log, main);
                           vanilla JS, no build step; xterm.js comes from /vendor/xterm/*
 bin/                      ensemble.cjs (CLI shim) + postinstall.cjs (node-pty check)
 agents.json               one adapter per agent CLI: command, flags, cwdFlag/addDirFlag, readyMarkers,
                           inputMethod, pasteMarker, gates, usagePatterns, modelFlag/models, stripEnv,
-                          color, icon
+                          account, color, icon
 collab-templates.json     collaboration presets
 skill/SKILL.md            the /collab skill that drives ensemble from Claude Code
 tests/                    vitest; live-captured terminal screens (tests/fixtures/screens.ts) used as
@@ -118,6 +120,7 @@ allow; no Origin (CLI, curl) is fine. Bodies over 1 MB are a 413.
 |---|---|
 | `GET /api/v1/health` | liveness |
 | `GET /api/ensemble/programs` | the adapter catalog (name, icon, color, models, installed) |
+| `GET /api/ensemble/accounts` | read-only account status per program: `{ program, state, account?, plan?, detail? }`, `state` one of `signed-in`, `signed-out`, `unsupported`, `error`; cached 60 s. GET only |
 | `GET /api/ensemble/teams`, `GET …/teams/:id`, `GET …/teams/:id/feed?since=<seq>` | state, served from memory |
 | `POST /api/ensemble/teams` | create a team; **202** at once |
 | `POST …/teams/:id` (message), `POST …/teams/:id/disband`, `DELETE …/teams/:id` | talk to / end a team |
@@ -258,6 +261,14 @@ Copy `.env.example` to `.env` before running. The server and CLI load it at star
   exists (a DNS-rebinding page reaches 127.0.0.1 under its own hostname) and why input and
   resize only reach agent terminals of live teams. Do not loosen either, and do not bind
   beyond loopback without knowing who can reach the port.
+- **`GET /api/ensemble/accounts` is GET-only on purpose.** It reports who each CLI is signed in
+  as, by running the status command named in the adapter's `account` key. There must never be
+  a login or logout route: with no auth, that would be one unauthenticated `curl` ending a paid
+  session. Results are rebuilt from five allowlisted fields; raw CLI output is never logged,
+  stored or returned (it can carry tokens). The probe goes through `cmd.exe /d /c` because npm
+  installs CLIs as `.cmd` shims, which Node will not execFile without a shell, so the loader
+  rejects any shell metacharacter in an `account` command or args (the `cmd.exe` ban is about
+  `ENSEMBLE_SHELL`, the PTY shell, not this one-shot probe). A timeout kills the tree.
 - **Model ids are an allowlist per program** (`models` in `agents.json`). A model not listed
   is a 400 before anything is spawned: a bad id makes the CLI exit at once and the readiness
   wait burns its whole window. Do not add ids that no live run has confirmed.
@@ -284,6 +295,7 @@ strings that appear when it is at its input prompt), `inputMethod` (`sendKeys` o
 | `usagePatterns` | `{ pattern, format }`; one capture group, `$1` in `format` |
 | `modelFlag`, `models` | the model allowlist `[{ id, label }]`; needs `modelFlag` |
 | `stripEnv` | regex sources of environment variables withheld from agent shells (the union over all programs applies to every shell) |
+| `account` | read-only account probe for the Accounts view: `{ args, json }` or `{ args, text }`, or `{ unsupported: "reason" }` for a CLI with no status command (no key means the same, generic reason). `args` follow `command` (a bare name) and may use only letters, digits and `. _ - : = @ + / \`. `json`: `{ signedIn, account, plan }`, lists of keys, first hit wins (`signedIn` is a boolean). `text`: `{ signedOut, signedIn, account, plan }`, regex sources (`account` and `plan` are lists, one capture group each); `signedOut` is tried first. |
 
 Check it with `npm test` (the loader validates every entry), then run it live: unit tests
 stop at argv construction and screen fixtures. `tests/adapters.test.ts` shows a fake CLI

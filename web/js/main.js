@@ -3,6 +3,7 @@
 
 import { $ } from './dom.js'
 import * as api from './api.js'
+import { initAccounts } from './accounts.js'
 import { initArchive } from './archive.js'
 import { startEvents } from './events.js'
 import { initLog, backfillLog } from './log.js'
@@ -44,6 +45,7 @@ async function resync(reconnected) {
 function boot() {
   initTeams()
   initArchive()
+  initAccounts()
   initTranscript()
   initTerminals()
   initNewTeam()

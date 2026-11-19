@@ -226,6 +226,11 @@ naming the run and counting its messages; confirming erases the team record, its
 A file that cannot be deleted is reported as a warning. Worktrees of a run are not removed.
 Or from PowerShell: `Invoke-RestMethod -Method Post -ContentType application/json -Body '{"archived":true}' http://localhost:23000/api/ensemble/teams/<team-id>/archive`.
 
+**Accounts.** The **Accounts** button in the left column opens a read-only list: for each
+program its state (signed in, signed out, unsupported, error), the account and plan when the CLI
+tells, and a note. **Refresh** asks again; the server caches each answer for a minute. How a
+program is asked is its `account` key in `agents.json` (4.6). There is no sign-in or sign-out.
+
 **Server log** shows what the server prints to its console. Open it first when something
 looks wrong.
 
@@ -374,6 +379,7 @@ Optional keys:
 | `usagePatterns` | `{ "pattern": "...", "format": "...$1..." }`. One capture group; `$1` goes into `format`. Used for the token count in `summary.txt`. |
 | `modelFlag`, `models` | Model allowlist `[{ "id", "label" }]`. `models` needs `modelFlag`. 4.2. |
 | `stripEnv` | Regex sources of environment variables withheld from every agent shell (for example API keys that would override the CLI's own login). The union over all programs applies to every shell. |
+| `account` | How the **Accounts** view asks the CLI who is signed in (4.6). Either `{ "unsupported": "reason" }`, or `{ "args": [...], "json": {...} }`, or `{ "args": [...], "text": {...} }`. No key at all means unsupported. |
 
 An entry from the repository, trimmed:
 
@@ -465,6 +471,40 @@ echoes every submitted line as `got: <line>`. `tests/fixtures/fake-agents.json` 
 programs for it, `fakea` and `fakeb` (`fakeb` has models `m1` and `m2`). Use them to test the
 whole stack without starting a real, billable agent. See 5.4.
 
+### 4.6 The account probe
+
+The **Accounts** view (`GET /api/ensemble/accounts`) runs the status command a program names in
+its `account` key and keeps only a state, an account label and a plan label. Three shapes:
+
+```json
+"account": { "unsupported": "aider has no CLI-queryable account status." }
+
+"account": {
+  "args": ["auth", "status", "--json"],
+  "json": { "signedIn": ["loggedIn"], "account": ["email"], "plan": ["subscriptionType"] }
+}
+
+"account": {
+  "args": ["login", "status"],
+  "text": {
+    "signedOut": "not logged in",
+    "signedIn": "logged in",
+    "account": ["([\\w.+-]+@[\\w-]+\\.[\\w.-]+)"],
+    "plan": ["\\(([^)]+)\\)"]
+  }
+}
+```
+
+- `args` follow `command`, which must be a bare name. Args may use only letters, digits and
+  `. _ - : = @ + / \`, because the probe runs through `cmd.exe /d /c` (npm installs CLIs as
+  `.cmd` shims that Node will not run without a shell). The loader rejects anything else.
+- `json`: lists of keys, first one present wins; `signedIn` reads a boolean, the others strings.
+- `text`: case-insensitive regex sources; the one capture group of each `account`/`plan` pattern
+  is the value. Output is read from stdout, or from stderr when stdout is empty.
+- No `account` key: reported as unsupported. Programs are probed in parallel, each limited to
+  5 s (the process tree is killed), answers are cached for 60 s, and the raw output is never
+  logged or returned. To try it without a real CLI, see `fakea` in `tests/fixtures/fake-agents.json`.
+
 ---
 
 ## 5. Developing on it
@@ -477,7 +517,7 @@ src/
   core/      team logic: team-lifecycle, store, bus, messaging, delivery, readiness,
              watchdog, team-supervisor, prompts, staged-workflow, worktrees, summary, paths
   runtime/   the only door to a terminal: agent-runtime.ts (interface), pty-runtime.ts, win-process.ts
-  adapters/  agents.json loader and types, program catalog
+  adapters/  agents.json loader and types, program catalog, account probe
   cli/       ensemble.ts, a pure HTTP client
   types.ts, repo-root.ts, load-env.ts
 web/         the GUI: index.html, app.css, js/*.js (vanilla ES modules, no build step)
@@ -520,7 +560,7 @@ timing flake under heavy load (run it again).
 | Where | What |
 |---|---|
 | `tests/helpers/boot-server.ts` | `bootServer()` starts the real server on a free port with a temp data dir, real store and routes, and a mocked spawner and runtime. Returns `baseUrl`, mock `runtime`, `pty.emit(session, chunk)` to push terminal output, and `restore()`/`cleanup()`. |
-| `tests/fixtures/fake-agent.mjs`, `fake-agents.json` | The fake agent and its adapter config. `tests/e2e-fake-agent.test.ts` runs the whole stack against it: real server, real ConPTY, real readiness, real SSE, process-tree checks. |
+| `tests/fixtures/fake-agent.mjs`, `fake-agents.json` | The fake agent and its adapter config. `tests/e2e-fake-agent.test.ts` runs the whole stack against it: real server, real ConPTY, real readiness, real SSE, process-tree checks. `fake-account.mjs` prints fixed JSON for `fakea`'s account probe. |
 | `tests/fixtures/agents.json` | A small adapter set for server tests (a stub screen of `>`). |
 | `tests/fixtures/screens.ts` | Terminal screens captured live from real CLIs. Readiness tests use them as fixtures. When a CLI's UI changes, capture the new screen from `GET .../pane` and add it here. |
 | the rest | One file per module: `readiness-*.test.ts`, `delivery.test.ts`, `team-api.test.ts`, `sse.test.ts`, `http-guard.test.ts`, `store.test.ts`, and so on. |
@@ -826,6 +866,7 @@ table is also in `AGENTS.md`.
 |---|---|
 | `GET /api/v1/health` | Liveness: `{"status":"healthy","version":"1.0.0"}` |
 | `GET /api/ensemble/programs` | Agent CLIs from `agents.json`: name, icon, color, models, installed |
+| `GET /api/ensemble/accounts` | Read-only account status per program (`state`, `account`, `plan`, `detail`), from each adapter's `account` probe; cached 60 s. GET only: no sign-in or sign-out route exists, on purpose |
 | `GET /api/ensemble/templates` | Collaboration presets |
 | `GET /api/ensemble/teams` | All teams |
 | `GET /api/ensemble/teams/:id` | One team and its messages |
