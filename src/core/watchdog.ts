@@ -21,8 +21,8 @@ interface AgentWatchdogDeps {
   appendMessage: (teamId: string, message: EnsembleMessage) => void
   getRuntime: () => Pick<AgentRuntime, 'sendKeys' | 'paste' | 'exists' | 'screen'>
   resolveAgentProgram: (program: string) => { inputMethod: 'pasteFromFile' | 'sendKeys'; pasteMarker?: string } | undefined
-  /** Records the stall where API consumers can see it. Optional for tests. */
-  markAgentStalled?: (teamId: string, agentName: string, stalledAt: string) => void
+  /** Records the stall where API consumers can see it; `undefined` clears it. Optional for tests. */
+  markAgentStalled?: (teamId: string, agentName: string, stalledAt: string | undefined) => void
   now?: () => number
   nudgeAfterMs?: number
   stallAfterMs?: number
@@ -100,6 +100,7 @@ export class AgentWatchdog {
         this.state.set(stateKey, { lastMessageAt })
       } else if (previousState.lastMessageAt !== lastMessageAt) {
         this.state.set(stateKey, { lastMessageAt })
+        if (previousState.stalledAt) this.recordStall(team.id, agent.name, undefined) // it spoke again
         continue
       }
 
@@ -140,13 +141,19 @@ export class AgentWatchdog {
       })
       const stalledAt = new Date(nowMs).toISOString()
       this.state.set(stateKey, { ...currentState, stalledAt })
-      // Without this the stall existed only in this in-memory map, so every API
-      // consumer kept reporting a dead agent as healthy.
-      try {
-        this.deps.markAgentStalled?.(team.id, agent.name, stalledAt)
-      } catch (err) {
-        console.error(`[Watchdog] Could not record stall for ${agent.name}:`, err)
-      }
+      this.recordStall(team.id, agent.name, stalledAt)
+    }
+  }
+
+  /**
+   * Without this the stall existed only in this in-memory map, so every API
+   * consumer kept reporting a dead agent as healthy (or a recovered one as stalled).
+   */
+  private recordStall(teamId: string, agentName: string, stalledAt: string | undefined): void {
+    try {
+      this.deps.markAgentStalled?.(teamId, agentName, stalledAt)
+    } catch (err) {
+      console.error(`[Watchdog] Could not record stall state for ${agentName}:`, err)
     }
   }
 
@@ -222,6 +229,7 @@ export class AgentWatchdog {
         timestamp: iso,
       })
       this.state.set(stateKey, { lastMessageAt, nudgedAt: iso, stalledAt: iso })
+      this.recordStall(team.id, agentName, iso)
       return
     }
 

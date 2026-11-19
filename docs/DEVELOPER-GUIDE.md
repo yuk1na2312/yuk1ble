@@ -205,7 +205,8 @@ one and type: your keystrokes go to that agent's terminal. Typing into a pane is
 answer a prompt the agent is stuck on. Each pane header shows the program, model and role,
 a state badge (`connecting`, `live`, `exited`, `no session`) and **Maximize**. `Ctrl+Shift+Up`
 moves the keyboard focus from a terminal to its Maximize button. A red `stalled` badge means
-the watchdog gave up on the agent (see 3.5); it disappears when the team ends.
+the watchdog gave up on the agent (see 3.5); it disappears when the agent sends a message again
+or the team ends.
 
 **Conversation and steering.** The right column is the team transcript: agent messages,
 your messages, and `ensemble` system notes (agent joined, watchdog nudged, errors). The box
@@ -329,9 +330,9 @@ Every 30 seconds the server checks each active agent. If an agent has sent no me
 90 seconds (`ENSEMBLE_WATCHDOG_NUDGE_MS`), it pastes "Are you still working? Share your
 progress with team-say." into its terminal. If the agent is still silent 180 seconds after
 the nudge (`ENSEMBLE_WATCHDOG_STALL_MS`), the agent is marked stalled: a note in the
-transcript and the red badge. A stalled agent still receives messages. The stalled mark is not
-cleared if the agent recovers; it is a hint to look at the pane, not a verdict. The GUI hides
-the badge once the team has ended.
+transcript and the red badge. A stalled agent still receives messages. The mark is cleared at
+the next check after the agent sends a message again; the GUI also hides the badge once the
+team has ended.
 
 ---
 

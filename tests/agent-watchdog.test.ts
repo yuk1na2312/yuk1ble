@@ -55,8 +55,10 @@ describe('AgentWatchdog', () => {
   let paste: ReturnType<typeof vi.fn>
   let exists: ReturnType<typeof vi.fn>
   let screen: ReturnType<typeof vi.fn>
+  let stallMarks: Array<[string, string | undefined]>
 
   beforeEach(() => {
+    stallMarks = []
     vi.restoreAllMocks()
     nowMs = new Date('2026-03-19T10:00:00.000Z').getTime()
     teams = [makeTeam()]
@@ -90,6 +92,7 @@ describe('AgentWatchdog', () => {
       // here; the paste-submit behaviour has its own tests.
       getRuntime: () => ({ sendKeys, paste, exists, screen }),
       resolveAgentProgram: () => ({ inputMethod: 'sendKeys' }),
+      markAgentStalled: (_teamId, agentName, stalledAt) => { stallMarks.push([agentName, stalledAt]) },
       now: () => nowMs,
       pollIntervalMs: 60_000,
       nudgeAfterMs: 90_000,
@@ -151,6 +154,26 @@ describe('AgentWatchdog', () => {
     watchdog.stop()
   })
 
+  it('clears the recorded stall once a stalled agent sends a message again', async () => {
+    const watchdog = createWatchdog()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await watchdog.poll()
+    nowMs += 91_000
+    await watchdog.poll() // nudged
+    nowMs += 181_000
+    await watchdog.poll() // stalled
+    expect(stallMarks).toEqual([['codex-1', new Date(nowMs).toISOString()]])
+
+    messages = [...messages, makeMessage({ id: 'msg-back', timestamp: new Date(nowMs + 1_000).toISOString() })]
+    nowMs += 30_000
+    await watchdog.poll()
+
+    expect(stallMarks.at(-1)).toEqual(['codex-1', undefined])
+    expect(stallMarks).toHaveLength(2)
+    watchdog.stop()
+  })
+
   it('drops watchdog state for non-active teams so disbanded teams are no longer monitored', async () => {
     const watchdog = createWatchdog()
 
@@ -193,6 +216,7 @@ describe('AgentWatchdog', () => {
     expect(appended[0].content).toContain('stalled')
     expect(appended[0].content).toContain('session is gone')
     expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(stallMarks).toEqual([['codex-1', expect.any(String)]]) // on the team too, not only in watchdog memory
 
     // Several more ticks go by with the session still gone. Before the fix,
     // each tick re-attempted the nudge and appended another failure message

@@ -47,7 +47,7 @@ export class TeamSupervisor {
       appendMessage,
       getRuntime,
       resolveAgentProgram,
-      markAgentStalled: (teamId: string, agentName: string, stalledAt: string) => {
+      markAgentStalled: (teamId: string, agentName: string, stalledAt: string | undefined) => {
         const team = getTeam(teamId)
         if (!team) return
         const agents = team.agents.map(agent =>
