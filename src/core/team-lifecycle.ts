@@ -7,7 +7,7 @@
 import { randomUUID } from 'crypto'
 import type { EnsembleTeam, EnsembleMessage, CreateTeamRequest, ServiceResult } from '../types'
 import {
-  createTeam, getTeam, updateTeam, loadTeams,
+  createTeam, getTeam, updateTeam, loadTeams, deleteTeam,
   appendMessage, getMessages,
 } from './store'
 import { spawnLocalAgent, killLocalAgent } from './agent-spawner'
@@ -527,4 +527,53 @@ export async function disbandTeam(teamId: string): Promise<ServiceResult<{ team:
   } catch { /* non-fatal cleanup */ }
 
   return { data: { team: updated! }, status: 200 }
+}
+
+const isLive = (team: EnsembleTeam): boolean => team.status === 'active' || team.status === 'forming'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Archive (or restore) a run: sets/clears `archivedAt` only, nothing is deleted.
+ * Refused on a live run: a running agent's `team-say` and the watchdog still append
+ * to its feed. Disband first.
+ */
+export async function archiveTeam(teamId: string, archived: boolean): Promise<ServiceResult<{ team: EnsembleTeam }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+  if (isLive(team)) return { error: 'Cannot archive a live run — disband it first', status: 409 }
+
+  const updated = updateTeam(teamId, { archivedAt: archived ? new Date().toISOString() : undefined })
+  return { data: { team: updated! }, status: 200 }
+}
+
+/**
+ * Irreversibly erase an archived run: runtime artifacts, the feed (memory and disk)
+ * and, last, the team record. The record goes last so that a step that throws leaves
+ * it in place and the purge can be retried; the other way round would strand files
+ * with nothing pointing at them. Failures to delete files are `warnings`, not errors.
+ */
+export async function purgeTeam(teamId: string): Promise<ServiceResult<{ ok: true; warnings: string[] }>> {
+  const team = getTeam(teamId)
+  if (!team) return { error: 'Team not found', status: 404 }
+  // The id becomes part of paths that are deleted recursively.
+  if (!UUID.test(teamId)) return { error: 'Invalid team id', status: 400 }
+  if (isLive(team)) return { error: 'Cannot purge a live run — disband it first', status: 409 }
+  if (!team.archivedAt) return { error: 'Cannot purge a run that has not been archived', status: 409 }
+
+  const warnings: string[] = []
+  const runtimeDir = collabRuntimeDir(teamId)
+  try {
+    fs.rmSync(runtimeDir, { recursive: true, force: true, maxRetries: 3 })
+  } catch (err) {
+    warnings.push(`Failed to remove runtime artifacts at ${runtimeDir}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+
+  // The worktree base path is not persisted (disband derives it from a surviving
+  // worktreePath), so leftovers of a run that never disbanded cannot be located.
+  if (team.agents.some(a => a.worktreePath)) {
+    warnings.push('This run had worktrees; leftover worktree directories could not be located and must be removed manually.')
+  }
+
+  warnings.push(...deleteTeam(teamId))
+  return { data: { ok: true, warnings }, status: 200 }
 }

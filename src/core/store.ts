@@ -165,6 +165,29 @@ export function updateTeam(id: string, updates: Partial<EnsembleTeam>): Ensemble
 }
 
 /**
+ * Erase a team: its record, its in-memory feed and its feed directory on disk, then
+ * teams.json is written at once. Announces `team-removed`. Returns what could not be
+ * deleted from disk (the team is gone from memory regardless). Unknown id: no-op.
+ */
+export function deleteTeam(id: string): string[] {
+  loadTeamsOnce()
+  if (!teams.has(id)) return []
+  const warnings: string[] = []
+  const feedDir = path.dirname(getFeedFile(id))
+  try {
+    fs.rmSync(feedDir, { recursive: true, force: true, maxRetries: 3 })
+  } catch (err) {
+    warnings.push(`Failed to remove message feed at ${feedDir}: ${err instanceof Error ? err.message : String(err)}`)
+  }
+  teams.delete(id)
+  feeds.delete(id)
+  teamsDirty = true
+  flushStore()
+  bus.emit('team-removed', { id })
+  return warnings
+}
+
+/**
  * Whether `sessionName` is the terminal of an agent of a team that has not been
  * disbanded.
  */

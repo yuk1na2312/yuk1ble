@@ -127,6 +127,16 @@ describe('SSE', () => {
       expect(log.text).toContain('a line for the log stream')
     })
 
+    it('pushes team-removed with the id when a team is purged', async () => {
+      const store = await server.store()
+      const team = store.createTeam({ name: 'gone', description: 'd', agents: [{ program: 'codex' }, { program: 'claude' }] })
+      const client = await connect('/api/ensemble/events')
+
+      store.deleteTeam(team.id)
+
+      expect(JSON.parse((await client.waitFor('team-removed')).data)).toEqual({ id: team.id })
+    })
+
     it('?team=<id> keeps other teams\' messages out, but not team events', async () => {
       const store = await server.store()
       const mine = store.createTeam({ name: 'mine', description: 'd', agents: [{ program: 'codex' }, { program: 'claude' }] })

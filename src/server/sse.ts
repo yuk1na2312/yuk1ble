@@ -3,6 +3,7 @@
  *
  *   GET /api/ensemble/events[?team=<id>]
  *       `team`    JSON EnsembleTeam      a team was created or changed
+ *       `team-removed` JSON { id }       a team was purged; drop it
  *       `message` JSON EnsembleMessage   a message was appended (only ?team=<id>'s when given)
  *       `log`     JSON LogEntry          a line was written to the server console
  *
@@ -126,6 +127,7 @@ export function handleEvents(
   const stream = startStream(req, res, origin)
   const unsubscribe = [
     bus.on('team', team => { stream.send('team', JSON.stringify(team)) }),
+    bus.on('team-removed', removed => { stream.send('team-removed', JSON.stringify(removed)) }),
     bus.on('message', message => {
       if (!teamId || message.teamId === teamId) stream.send('message', JSON.stringify(message))
     }),

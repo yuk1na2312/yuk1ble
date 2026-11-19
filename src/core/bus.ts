@@ -13,6 +13,8 @@ import type { LogEntry } from '../server/log-buffer'
 export interface BusEvents {
   /** A team was created or changed; the payload is its new state. */
   team: EnsembleTeam
+  /** A team was erased for good (purge); every view of it should drop it. */
+  'team-removed': { id: string }
   /** A message was appended to a team's feed (it carries its `teamId` and `seq`). */
   message: EnsembleMessage
   /** A line was written to the server console. */

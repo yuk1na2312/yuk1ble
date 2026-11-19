@@ -5,7 +5,7 @@
 import http from 'http'
 import {
   createEnsembleTeam, getEnsembleTeam, listEnsembleTeams,
-  getTeamFeed, sendTeamMessage, disbandTeam,
+  getTeamFeed, sendTeamMessage, disbandTeam, archiveTeam, purgeTeam,
 } from '../core/team-lifecycle'
 import { getRuntime } from '../runtime/agent-runtime'
 import { isLiveTeamSession } from '../core/store'
@@ -124,6 +124,18 @@ export function createRequestHandler({ host, port, webRoot }: RequestHandlerOpti
       // Disband: /api/ensemble/teams/:id/disband
       const disbandMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/disband$/)
       if (disbandMatch && method === 'POST') return reply(await disbandTeam(disbandMatch[1]))
+
+      // Archive / restore: /api/ensemble/teams/:id/archive  { archived: boolean }
+      const archiveMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/archive$/)
+      if (archiveMatch && method === 'POST') {
+        const archived = (await readJsonBody(req) as { archived?: unknown } | null)?.archived
+        if (typeof archived !== 'boolean') return json({ error: 'archived must be a boolean' }, 400)
+        return reply(await archiveTeam(archiveMatch[1], archived))
+      }
+
+      // Purge an archived team for good: /api/ensemble/teams/:id/purge
+      const purgeMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/purge$/)
+      if (purgeMatch && method === 'POST') return reply(await purgeTeam(purgeMatch[1]))
 
       // Feed: /api/ensemble/teams/:id/feed
       const feedMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)

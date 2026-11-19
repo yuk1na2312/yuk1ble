@@ -18,8 +18,7 @@ export interface EnsembleTeam {
   result?: EnsembleTeamResult
   /**
    * ISO timestamp of when this run was archived; absent means not archived.
-   * No migration — records written before this field existed are simply
-   * treated as not archived.
+   * Records written before this field existed are simply not archived.
    */
   archivedAt?: string
   /**
