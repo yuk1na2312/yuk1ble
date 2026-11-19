@@ -90,7 +90,7 @@ src/
     programs.ts           describePrograms() behind GET /api/ensemble/programs (PATH lookup, cached 30 s)
     types.ts              the agents.json schema types
   cli/
-    ensemble.ts           CLI entrypoint (status, run, steer, team-say, team-read) — pure HTTP client
+    ensemble.ts           CLI entrypoint (status, run, steer, disband, team-say, team-read) — pure HTTP client
 web/                      monitoring GUI, served at `/`: index.html, app.css and ES modules in js/
                           (api, events, store, teams, terminals, transcript, new-team, log, main);
                           vanilla JS, no build step; xterm.js comes from /vendor/xterm/*
@@ -155,6 +155,7 @@ Health check (server running): `curl http://localhost:23000/api/v1/health`
 `Invoke-WebRequest`.)
 
 CLI examples: `npx ensemble status`, `npx ensemble steer <team-id> "focus on the auth module"`,
+`npx ensemble disband <team-id>`,
 `npx ensemble run "task" --agents <program>[:<model>],<program>[:<model>],...` (without
 `--agents`: the first two installed programs of `GET /api/ensemble/programs`).
 

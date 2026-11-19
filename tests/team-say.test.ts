@@ -166,6 +166,21 @@ describe('team-say over HTTP', () => {
     const result = await runCli(['team-say', teamId, 'codex-1', 'claude-2', 'via port'], { ENSEMBLE_URL: '', ENSEMBLE_PORT: port })
     expect(result).toMatchObject({ code: 0, stdout: 'Sent to claude-2' })
   })
+
+  it('disband ends the team, and exits non-zero for a team that does not exist', async () => {
+    const store = await server.store()
+    const team = store.createTeam({ name: 'end-me', description: 'd', agents: [{ program: 'codex' }, { program: 'claude' }] })
+    store.updateTeam(team.id, { status: 'active' })
+
+    const ok = await runCli(['disband', team.id], { ENSEMBLE_URL: server.baseUrl })
+    expect(ok.code).toBe(0)
+    expect(ok.stdout).toContain(`Team ${team.id} disbanded`)
+    expect(store.getTeam(team.id)?.status).toBe('disbanded')
+
+    const missing = await runCli(['disband', 'no-such-team'], { ENSEMBLE_URL: server.baseUrl })
+    expect(missing.code).toBe(1)
+    expect(missing.stderr).toContain('disband failed: HTTP 404')
+  })
 })
 
 describe('the CLI is a pure HTTP client', () => {

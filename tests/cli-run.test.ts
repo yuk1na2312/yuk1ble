@@ -12,9 +12,13 @@ describe('ensemble run --agents', () => {
   let baseUrl: string
   let programs: Array<{ name: string; color: string; installed: boolean }>
   let posted: Array<{ agents: Array<{ program: string; model?: string; role: string }> }>
+  let teamStatus: string
+  let disbandCalls: number
 
   beforeEach(async () => {
     posted = []
+    teamStatus = 'disbanded'
+    disbandCalls = 0
     programs = [
       { name: 'alpha', color: '#112233', installed: false },
       { name: 'beta', color: '#445566', installed: true },
@@ -33,7 +37,11 @@ describe('ensemble run --agents', () => {
         return
       }
       if (url.startsWith('/api/ensemble/teams/stub-team/feed')) return send(200, { messages: [] })
-      if (url === '/api/ensemble/teams/stub-team') return send(200, { team: { status: 'disbanded' } })
+      if (url === '/api/ensemble/teams/stub-team') return send(200, { team: { status: teamStatus } })
+      if (url === '/api/ensemble/teams/stub-team/disband' && req.method === 'POST') {
+        disbandCalls++
+        return send(200, { team: { status: 'disbanded' } })
+      }
       send(404, { error: 'not found' })
     })
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
@@ -69,5 +77,15 @@ describe('ensemble run --agents', () => {
 
     await expect(run()).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining('Fewer than two') })
     expect(posted).toEqual([])
+  }, 40_000)
+
+  it('disbands the team when the timeout passes and exits 124', async () => {
+    teamStatus = 'active'
+
+    await expect(execFileAsync(
+      process.execPath, [path.resolve('bin/ensemble.cjs'), 'run', 'do it', '--agents', 'beta,gamma', '--timeout', '1'],
+      { env: { ...process.env, ENSEMBLE_URL: baseUrl }, encoding: 'utf8', timeout: 30_000 },
+    )).rejects.toMatchObject({ code: 124, stdout: expect.stringContaining('disbanding the team') })
+    expect(disbandCalls).toBe(1)
   }, 40_000)
 })

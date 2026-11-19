@@ -56,7 +56,7 @@ ensemble-win/
 │  │  ├─ agent-config.ts        agents.json loader + validation, program/model resolution
 │  │  ├─ programs.ts            program catalog for GET /api/ensemble/programs
 │  │  └─ types.ts               the agents.json schema types
-│  └─ cli/ensemble.ts           CLI (pure HTTP client): status, run, steer, team-say, team-read
+│  └─ cli/ensemble.ts           CLI (pure HTTP client): status, run, steer, disband, team-say, team-read
 ├─ web/                         monitoring GUI: index.html, app.css, ES modules in js/ (teams, transcript, live PTY panes, server log)
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
 ├─ tests/                       380 tests / 29 files (+ helpers/, fixtures/)

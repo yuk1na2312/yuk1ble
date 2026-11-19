@@ -239,6 +239,7 @@ node bin\ensemble.cjs <command>     # what agents run; also works from any folde
 | `steer <team-id> <message>` | Send a message to the whole team as `user`. |
 | `team-say <team-id> <from> <to> <message>` | Send a message. `to` is an agent name or `team`. Prints `Sent to <to>`. |
 | `team-read <team-id>` | Print the whole feed as `from -> to: text`. |
+| `disband <team-id>` | End a team: write its summary and kill every agent's process tree. |
 | `start` | Start the server in this terminal. |
 
 Examples:
@@ -261,10 +262,9 @@ Things to know:
 - Agent names are `<program>-<position>` (`claude-1`, `codex-2`). The terminal session of an
   agent is `<team name>-<agent name>`.
 - `run` ends when the team is disbanded (exit code 0) or the timeout passes (exit code 124).
-  **A timeout does not disband the team.** It keeps running; disband it yourself (3.4).
+  On a timeout it disbands the team first, so no agent keeps running.
 - `team-say` exits non-zero and prints the reason when the server is down or answers an
   error, so an agent notices a lost message.
-- There is no `disband` command. Use the GUI or the API (3.4).
 
 ### 3.3 Templates, staged workflow, worktrees
 
@@ -294,7 +294,8 @@ A team ends in one of four ways:
 2. **Manual disband.** The GUI button, or:
 
    ```powershell
-   Invoke-RestMethod -Method Post http://localhost:23000/api/ensemble/teams/<team-id>/disband
+   npm run cli -- disband <team-id>
+   # or: Invoke-RestMethod -Method Post http://localhost:23000/api/ensemble/teams/<team-id>/disband
    # or: Invoke-RestMethod -Method Delete http://localhost:23000/api/ensemble/teams/<team-id>
    ```
 3. **Idle.** After `ENSEMBLE_IDLE_DISBAND_MS` (default 1 hour, minimum 1 minute) with no
@@ -721,9 +722,8 @@ Cause: a team ends only on the sentinel from **every active agent**, a manual di
 timeout (1 hour of silence, and only after 10 messages). One agent that never sent `<<COLLAB_DONE>>`
 (or whose message had extra text) blocks the first rule.
 
-Fix: disband it (GUI button, or `Invoke-RestMethod -Method Post http://localhost:23000/api/ensemble/teams/<team-id>/disband`).
+Fix: disband it (GUI button, or `npm run cli -- disband <team-id>`).
 To end it from the transcript side, steer: `npm run cli -- steer <team-id> "If you agree we are done, send exactly <<COLLAB_DONE>>"`.
-Note that `ensemble run` timing out does not disband the team.
 
 ### 6.10 403, 413, 429 from the API
 

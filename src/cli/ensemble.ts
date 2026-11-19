@@ -6,6 +6,7 @@
  *   ensemble run "task" [--agents x,y]      Run headless (no Claude Code needed)
  *   ensemble teams                          List all teams
  *   ensemble steer <team-id> <message>      Send a message to a team
+ *   ensemble disband <team-id>              End a team
  *   ensemble team-say <team-id> <from> <to> <message>
  *   ensemble team-read <team-id>
  *   ensemble status                         Server health + active teams
@@ -103,35 +104,48 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs =
 }
 
 /**
+ * POST to a team route. True on a 2xx; otherwise the reason goes to stderr as
+ * "<command> failed: …" and the exit code becomes 1, so a caller (often an agent) sees it.
+ */
+async function postToTeam(command: string, teamId: string, route: string, body: unknown, timeoutMs: number): Promise<boolean> {
+  let response: Response
+  try {
+    response = await fetchWithTimeout(`${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}${route}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }, timeoutMs)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    console.error(`${command} failed: cannot reach the ensemble server at ${API_BASE} (${reason}). Is it running? (npm run dev)`)
+    process.exitCode = 1
+    return false
+  }
+
+  if (!response.ok) {
+    const detail = await response.json().then((b: { error?: string }) => b.error, () => undefined)
+    console.error(`${command} failed: HTTP ${response.status}${detail ? ` ${detail}` : ''}`)
+    process.exitCode = 1
+    return false
+  }
+  return true
+}
+
+/**
  * Post a message to the server, which records it and delivers it to the
  * recipient's terminal in the background. Agents rely on the exact "Sent to <recipient>" line, and
  * on a non-zero exit when the message did not go out (server down, unknown team).
  */
 async function cmdTeamSay(teamId: string, from: string, to: string, content: string): Promise<void> {
-  const endpoint = `${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}`
-  let response: Response
-  try {
-    // The server answers as soon as the message is in the feed; pasting it into the terminal goes on behind.
-    response = await fetchWithTimeout(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, content }),
-    }, 15_000)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    console.error(`team-say failed: cannot reach the ensemble server at ${API_BASE} (${reason}). Is it running? (npm run dev)`)
-    process.exitCode = 1
-    return
-  }
+  // The server answers as soon as the message is in the feed; pasting it into the terminal goes on behind.
+  if (await postToTeam('team-say', teamId, '', { from, to, content }, 15_000)) console.log(`Sent to ${to}`)
+}
 
-  if (!response.ok) {
-    const detail = await response.json().then((b: { error?: string }) => b.error, () => undefined)
-    console.error(`team-say failed: HTTP ${response.status}${detail ? ` ${detail}` : ''}`)
-    process.exitCode = 1
-    return
-  }
-
-  console.log(`Sent to ${to}`)
+/** Ends a team: the server writes its summary and kills every agent's process tree, which can take a while. */
+async function cmdDisband(teamId: string): Promise<boolean> {
+  const ok = await postToTeam('disband', teamId, '/disband', {}, 60_000)
+  if (ok) console.log(`${c.bGreen}✓${c.r} Team ${teamId} disbanded`)
+  return ok
 }
 
 async function cmdTeamRead(teamId: string): Promise<void> {
@@ -219,28 +233,9 @@ async function cmdTeams() {
 
 /** Like team-say: success is printed only for a 2xx; otherwise the server's error goes to stderr and the exit code is 1. */
 async function cmdSteer(teamId: string, message: string): Promise<void> {
-  let response: Response
-  try {
-    response = await fetchWithTimeout(`${API_BASE}/api/ensemble/teams/${encodeURIComponent(teamId)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'user', to: 'team', content: message }),
-    }, 15_000)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error)
-    console.error(`steer failed: cannot reach the ensemble server at ${API_BASE} (${reason}). Is it running? (npm run dev)`)
-    process.exitCode = 1
-    return
+  if (await postToTeam('steer', teamId, '', { from: 'user', to: 'team', content: message }, 15_000)) {
+    console.log(`${c.bGreen}✓${c.r} Message sent to team`)
   }
-
-  if (!response.ok) {
-    const detail = await response.json().then((b: { error?: string }) => b.error, () => undefined)
-    console.error(`steer failed: HTTP ${response.status}${detail ? ` ${detail}` : ''}`)
-    process.exitCode = 1
-    return
-  }
-
-  console.log(`${c.bGreen}✓${c.r} Message sent to team`)
 }
 
 async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: number) {
@@ -336,7 +331,9 @@ async function cmdRun(task: string, agentFlags: string | undefined, timeoutSec: 
     } catch { /* server busy; try again */ }
   }
 
-  console.log(`\n  ${c.yellow}⏱${c.r} Timeout reached (${timeoutSec}s)`)
+  // A headless run must not leave agents running after it gives up on them.
+  console.log(`\n  ${c.yellow}⏱${c.r} Timeout reached (${timeoutSec}s); disbanding the team`)
+  await cmdDisband(teamId)
   process.exit(124)
 }
 
@@ -397,6 +394,14 @@ switch (cmd) {
     }
     await cmdSteer(args[0], args.slice(1).join(' '))
     break
+  case 'disband':
+    if (args.length !== 1) {
+      console.error('Usage: ensemble disband <team-id>')
+      process.exitCode = 1
+      break
+    }
+    await cmdDisband(args[0])
+    break
   case 'start':
   case 'server': {
     try {
@@ -425,6 +430,7 @@ switch (cmd) {
     ${c.bWhite}run${c.r} "task" [--agents ..]   Run headless (auto-starts server)
     ${c.bWhite}teams${c.r}                      List all teams
     ${c.bWhite}steer${c.r} <id> <message>       Send steering message to team
+    ${c.bWhite}disband${c.r} <id>                End a team and stop its agents
     ${c.bWhite}team-say${c.r} <id> <from> <to> <message>
     ${c.bWhite}team-read${c.r} <id>              Read the team message feed
     ${c.bWhite}status${c.r}                     Server health & overview
