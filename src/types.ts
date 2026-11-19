@@ -16,6 +16,25 @@ export interface EnsembleTeam {
   completedAt?: string
   feedMode: 'silent' | 'summary' | 'live'
   result?: EnsembleTeamResult
+  /**
+   * ISO timestamp of when this run was archived; absent means not archived.
+   * No migration — records written before this field existed are simply
+   * treated as not archived.
+   */
+  archivedAt?: string
+  /**
+   * The directory this team's agents were spawned into, as requested at
+   * creation time. Absent means "the server's own cwd was used" — see
+   * `resolveAgentProjectDir` in services/ensemble-service.ts, which is the
+   * only place that fallback is applied.
+   *
+   * Persisted because project-scoped skill discovery needs to read it back
+   * long after creation. Before this field existed the value lived only as a
+   * local inside createEnsembleTeam, so nothing could recover it later. No
+   * migration: records written earlier simply have no value, which resolves
+   * to the same cwd default they were created under.
+   */
+  workingDirectory?: string
 }
 
 export interface EnsembleTeamAgent {
@@ -55,7 +74,7 @@ export interface EnsembleMessage {
   from: string
   to: string
   content: string
-  type: 'chat' | 'decision' | 'question' | 'result'
+  type: 'chat' | 'decision' | 'question' | 'result' | 'command'
   timestamp: string
   options?: string[]
   /** Per-team monotonically increasing sequence number, assigned by the store on append. */

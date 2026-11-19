@@ -1,6 +1,7 @@
-# Dependencies / build
+# Dependencies / build / docs
 node_modules/
 dist/
+docs
 
 # Environment & secrets
 .env
@@ -25,4 +26,5 @@ Thumbs.db
 .playwright-mcp/
 *.png
 !public/**/*.png
+!docs/images/*.png
 .claude
