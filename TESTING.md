@@ -2,7 +2,7 @@
 
 Two kinds of test live here, and they cost very different things:
 
-- **Offline checks** — typecheck, lint, 96 unit/integration tests. Seconds, free, run them
+- **Offline checks** — typecheck, lint, 544 unit/integration tests. Seconds, free, run them
   before every commit.
 - **A live run** — spawns real `claude` and `codex` sessions and spends your subscription
   quota. This is the only thing that proves the port, because every defect found so far was
@@ -22,7 +22,7 @@ npm run lint
 npm test
 ```
 
-Expect `96 passed (96)` across 9 files. If `npm install` fails on `node-pty`, that is the
+Expect `544 passed (544)` across 37 files. If `npm install` fails on `node-pty`, that is the
 C++ toolchain — `postinstall` prints the prerequisites.
 
 **What the tests do and do not cover.** They pin behaviour against **verbatim terminal
@@ -60,20 +60,20 @@ Expect `[Ensemble] Server running on http://127.0.0.1:23000`. Leave it running.
 
 Browser → **<http://localhost:23000/>**
 
-The header dot goes green (`server up`). You get a Teams column, a transcript, live agent
-panes, and a Server-log panel mirroring terminal 1. A 404 here means the server is an old
-build — go back to step 0.
+The dot under the wordmark goes green (`Live`). You get a teams list, the conversation,
+live agent panes, and a **Server log** drawer at the bottom mirroring terminal 1. A 404 here
+means the server is an old build — go back to step 0.
 
 ### 2 · Launch a team
 
-Either click **+ new** in the GUI and fill in the task, or in **terminal 2**:
+Either click **New team** in the GUI and fill in the task, or in **terminal 2**:
 
 ```powershell
 cd E:\projects\ensemble-win\yuk1naaa
 npm run cli -- run "Write a short hello.txt in a scratch folder, then discuss and agree on a one-line improvement to it."
 ```
 
-Both post an identical payload. Click the team in the Teams column; the right-hand column
+Both post an identical payload. Click the team in the teams list; the right-hand column
 shows **one live PTY pane per agent**.
 
 > Give it a working directory you don't mind agents writing to. Blank means the server's
@@ -116,26 +116,34 @@ In the transcript, the pass condition is **alternation**: codex-1 replies to cla
 without being polled. Each speaker has its own colour and icon — **◆ codex blue**,
 **● claude green**, **⚙ ensemble amber** — so one-sidedness is visible at a glance.
 
-❌ Every message from one name only is the classic failure. Cross-check the bridge
-(team id from the GUI or `npm run cli -- status`):
+❌ Every message from one name only is the classic failure. Cross-check the feed and the
+silent agent's screen (team id from the GUI or `npm run cli -- status`):
 
 ```powershell
-$RD = "$env:TEMP\ensemble\<TEAM_ID>"
-Get-Content "$RD\bridge.pid"
-Get-Content "$RD\bridge.log" -Tail 20
+Invoke-RestMethod http://localhost:23000/api/ensemble/teams/<TEAM_ID>/feed
+Invoke-RestMethod "http://localhost:23000/api/ensemble/sessions/<SESSION>/pane?lines=40"
 ```
+
+A `team-say` that never reached the feed failed in the agent's terminal (it exits non-zero and
+says why); one that is in the feed but not in the recipient's pane is a delivery failure, which
+the feed also records as an `ensemble` message.
 
 ### 6 · Steer them
 
-Type in the composer under the transcript, choose `→ team` or a single agent, send. The
-text must land in that agent's **pane** — not just the transcript — and be acted on. This
+Type in the composer under the conversation, choose **Whole team** or a single agent, send.
+The text must land in that agent's **pane** — not just the transcript — and be acted on. This
 exercises the same submit path as step 4 for teammate delivery.
+
+With a single agent chosen, type `/`: the agent's installed skills are listed. Pick one and
+send. The pane must show the command run on its own (not parked in the composer), then the
+one-line `team-say` nudge, and the transcript shows the message with a **skill** badge.
 
 ### 7 · Auth stays on your subscription
 
 No login prompt in either pane. The run should show up in Claude/Codex **subscription**
-usage, not API billing. `PtyRuntime` strips `ANTHROPIC_*` / `OPENAI_*` / `GEMINI_API_KEY` /
-`CLAUDECODE*` from the session environment for exactly this reason. To switch accounts:
+usage, not API billing. The `stripEnv` patterns in `agents.json` withhold `ANTHROPIC_*`,
+`OPENAI_*`, `GEMINI_API_KEY`, `CLAUDE_CODE_*` and the like from every agent shell for exactly
+this reason. The **Accounts** button shows which account each CLI is signed in as. To switch accounts:
 `codex logout` then `codex login` — never `codex login --with-api-key`.
 
 ### 8 · Kill an agent from outside
@@ -146,14 +154,13 @@ one every 30s; and `stalledAt` set on that agent in `GET /api/ensemble/teams`.
 
 ### 9 · Teardown leaves nothing behind
 
-Click **disband**, then:
+Click **Disband**, then:
 
 ```powershell
-Get-CimInstance Win32_Process -Filter "Name='node.exe'" | Where-Object { $_.CommandLine -like '*bridge*' }
 Get-Process claude,codex -ErrorAction SilentlyContinue
 ```
 
-Both must come back empty. Two traps: agent CLIs you started yourself also appear here, so
+It must come back empty. Two traps: agent CLIs you started yourself also appear here, so
 match on start time before calling something an orphan; and **codex runs as
 `powershell → node.exe → codex.exe`**, so a check of direct children will tell you a live
 agent is dead.
@@ -167,9 +174,9 @@ orphaned processes are the main Windows stability risk, and they accumulate sile
 
 Only three things end a run. Nothing is inferred from what the agents *say*:
 
-1. **Both** agents send exactly `<<COLLAB_DONE>>` — immediate. This is the documented
-   protocol and the only fast path.
-2. You click **disband**.
+1. **Every** agent still active sends exactly `<<COLLAB_DONE>>` — immediate. This is the
+   documented protocol and the only fast path.
+2. You click **Disband** (or `npm run cli -- disband <TEAM_ID>`).
 3. **One hour** of silence — `ENSEMBLE_IDLE_DISBAND_MS`, floor 60s.
 
 If you are testing the idle path, set `ENSEMBLE_IDLE_DISBAND_MS=60000` rather than waiting
@@ -185,8 +192,9 @@ In order of usefulness:
 
 1. **The failing agent's pane text**, from the GUI. This was unobservable for two entire
    runs and is why they were misdiagnosed twice.
-2. Terminal 1's output — also in the GUI's Server-log panel, so you can copy it there.
-3. `%TEMP%\ensemble\<TEAM_ID>\` → `bridge.log`, `messages.jsonl`, `summary.txt`.
+2. Terminal 1's output — also in the GUI's **Server log** drawer, so you can copy it there.
+3. The transcript, `~\.ensemble\ensemble\messages\<TEAM_ID>\feed.jsonl`, and
+   `%TEMP%\ensemble\<TEAM_ID>\` → `summary.txt`, `prompts\` (what each agent was told).
 4. The team record: `npm run cli -- status`, or `GET /api/ensemble/teams`.
 
 Two diagnostic habits, both learned the hard way:
@@ -203,26 +211,27 @@ Two diagnostic habits, both learned the hard way:
 
 Starting an agent CLI costs nothing; only submitting a prompt does. To see what a real
 startup screen looks like — to add a ready marker, or to check a new gate — drive it
-through `PtyRuntime` from a throwaway script and snapshot `capturePane` on a timer:
+through `PtyRuntime` from a throwaway script and snapshot `screen` on a timer. Run it with
+the server stopped: it owns its own PTY registry (see AGENTS.md, *Known gotchas*).
 
 ```ts
-const { setRuntime, getRuntime } = await import('./lib/agent-runtime.ts')
-const { PtyRuntime } = await import('./lib/pty-runtime.ts')
-const { resolveStartCommand } = await import('./lib/agent-spawner.ts')
+const { setRuntime, getRuntime } = await import('./src/runtime/agent-runtime.ts')
+const { PtyRuntime } = await import('./src/runtime/pty-runtime.ts')
+const { resolveStartCommand } = await import('./src/core/agent-spawner.ts')
 
 setRuntime(new PtyRuntime())
 const runtime = getRuntime()
 const cwd = 'E:\\projects\\ensemble-win\\yuk1naaa'   // backslashes: a forward-slash cwd
                                                      // fails with pty error code 267
-await runtime.createSession('probe', cwd)
+await runtime.create('probe', cwd)
 await new Promise(r => setTimeout(r, 300))
-await runtime.sendKeys('probe', resolveStartCommand('claude code', cwd), { literal: true, enter: true })
+await runtime.sendKeys('probe', resolveStartCommand('claude', cwd), { literal: true, enter: true })
 
 for (let i = 0; i < 6; i++) {
   await new Promise(r => setTimeout(r, 10_000))
-  console.log(`--- t+${(i + 1) * 10}s ---\n` + await runtime.capturePane('probe', 50))
+  console.log(`--- t+${(i + 1) * 10}s ---\n` + runtime.screen('probe', 50))
 }
-await runtime.killSession('probe')
+await runtime.kill('probe')
 ```
 
 Run it with `npx tsx <file>`. Paste the captured screen into a test as a fixture — every
