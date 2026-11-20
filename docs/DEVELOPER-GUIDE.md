@@ -231,6 +231,14 @@ program its state (signed in, signed out, unsupported, error), the account and p
 tells, and a note. **Refresh** asks again; the server caches each answer for a minute. How a
 program is asked is its `account` key in `agents.json` (4.6). There is no sign-in or sign-out.
 
+**Skills.** Pick one agent in *Send to* and type `/`: a list of that agent's installed skills
+opens above the composer, grouped (project, personal, then one group per plugin) and filtered as
+you type. Arrow keys move, Enter or Tab picks, Escape closes. Sending `/token args` fires the skill:
+the agent gets the command alone on its line and, once it has left the composer, a one-line nudge
+to share the result with `team-say`. The transcript shows it with a *skill* badge. Text that starts
+with `/` but names no skill of that agent is sent as an ordinary message. Where skills are found is
+the adapter's `skills` key (4.7).
+
 **Server log** shows what the server prints to its console. Open it first when something
 looks wrong.
 
@@ -380,6 +388,7 @@ Optional keys:
 | `modelFlag`, `models` | Model allowlist `[{ "id", "label" }]`. `models` needs `modelFlag`. 4.2. |
 | `stripEnv` | Regex sources of environment variables withheld from every agent shell (for example API keys that would override the CLI's own login). The union over all programs applies to every shell. |
 | `account` | How the **Accounts** view asks the CLI who is signed in (4.6). Either `{ "unsupported": "reason" }`, or `{ "args": [...], "json": {...} }`, or `{ "args": [...], "text": {...} }`. No key at all means unsupported. |
+| `skills` | Where the `/` picker finds the CLI's installed skills and how it fires one (4.7). |
 
 An entry from the repository, trimmed:
 
@@ -505,6 +514,32 @@ its `account` key and keeps only a state, an account label and a plan label. Thr
   5 s (the process tree is killed), answers are cached for 60 s, and the raw output is never
   logged or returned. To try it without a real CLI, see `fakea` in `tests/fixtures/fake-agents.json`.
 
+### 4.7 Skills
+
+```json
+"skills": {
+  "invocation": "slash",
+  "roots": [
+    { "dir": "{project}/.claude/skills", "source": "project" },
+    { "dir": "{home}/.claude/skills", "source": "personal" }
+  ],
+  "plugins": "{home}/.claude/plugins/installed_plugins.json"
+}
+```
+
+- `invocation`: `slash` types `/token args` alone on a line; `prose` sends an ordinary team
+  message (`Use your "name" skill: args`); `none` turns the picker off for the program.
+- `roots`: directories of `<name>/SKILL.md` folders, one level deep. The folder name is the token;
+  the frontmatter `description:` is shown. Names other than letters, digits, `.`, `_`, `-` are
+  skipped, as is a link that points outside its root.
+- `plugins`: a manifest `{ "plugins": { "name@market": [{ "scope", "installPath" }] } }`. Each
+  plugin's `<installPath>/skills` is listed with the token `name:skill`.
+- Paths must start with `{home}`, `{project}` or `{env:NAME=default}` (the default may use the
+  other two). `{project}` is the agent's worktree, else the team's working directory, else the
+  server's cwd. Anything else in braces is a load error.
+- The scan is bounded (200 folders per root, 300 skills, 100 plugins, the first 4 KB of each
+  SKILL.md) and cached for 60 s. No filesystem path ever appears in a response.
+
 ---
 
 ## 5. Developing on it
@@ -517,7 +552,7 @@ src/
   core/      team logic: team-lifecycle, store, bus, messaging, delivery, readiness,
              watchdog, team-supervisor, prompts, staged-workflow, worktrees, summary, paths
   runtime/   the only door to a terminal: agent-runtime.ts (interface), pty-runtime.ts, win-process.ts
-  adapters/  agents.json loader and types, program catalog, account probe
+  adapters/  agents.json loader and types, program catalog, account probe, skill catalog
   cli/       ensemble.ts, a pure HTTP client
   types.ts, repo-root.ts, load-env.ts
 web/         the GUI: index.html, app.css, js/*.js (vanilla ES modules, no build step)
@@ -867,6 +902,8 @@ table is also in `AGENTS.md`.
 | `GET /api/v1/health` | Liveness: `{"status":"healthy","version":"1.0.0"}` |
 | `GET /api/ensemble/programs` | Agent CLIs from `agents.json`: name, icon, color, models, installed |
 | `GET /api/ensemble/accounts` | Read-only account status per program (`state`, `account`, `plan`, `detail`), from each adapter's `account` probe; cached 60 s. GET only: no sign-in or sign-out route exists, on purpose |
+| `GET /api/ensemble/skills?team=<id>&agent=<name>` | One agent's installed skills: `{ program, invocation, skills: [{ token, name, description?, source, group }], detail? }` |
+| `POST /api/ensemble/teams/:id/skill` | `{ "agent", "token", "args"? }`: fire a skill from that agent's own catalog; `args` one line, max 4,000 chars; 409 if its terminal is gone |
 | `GET /api/ensemble/templates` | Collaboration presets |
 | `GET /api/ensemble/teams` | All teams |
 | `GET /api/ensemble/teams/:id` | One team and its messages |

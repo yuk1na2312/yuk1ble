@@ -34,6 +34,7 @@ ensemble-win/
 │  │  ├─ store.ts               in-memory team + message store; files are a persistence log
 │  │  ├─ bus.ts                 typed event bus: team, team-removed, message, log
 │  │  ├─ messaging.ts           sendTeamMessage: feed first, terminal delivery in the background
+│  │  ├─ skill-invoke.ts        an agent's skill catalog, and firing one of its skills at it
 │  │  ├─ delivery.ts            deliver(): queue, paste, submit — the one way text reaches an agent
 │  │  ├─ paste-submit.ts        ensureSubmitted() — a paste alone never submits
 │  │  ├─ readiness.ts           waitForReady(): the readiness wait, dependencies injected
@@ -56,11 +57,12 @@ ensemble-win/
 │  │  ├─ agent-config.ts        agents.json loader + validation, program/model resolution
 │  │  ├─ programs.ts            program catalog for GET /api/ensemble/programs
 │  │  ├─ accounts.ts            read-only account probe for GET /api/ensemble/accounts
+│  │  ├─ skills.ts              installed-skill catalog for GET /api/ensemble/skills
 │  │  └─ types.ts               the agents.json schema types
 │  └─ cli/ensemble.ts           CLI (pure HTTP client): status, run, steer, disband, team-say, team-read
 ├─ web/                         monitoring GUI: index.html, app.css, ES modules in js/ (teams, transcript, live PTY panes, server log)
 ├─ bin/                         ensemble.cjs (CLI shim) · postinstall.cjs (node-pty check)
-├─ tests/                       456 tests / 33 files (+ helpers/, fixtures/)
+├─ tests/                       544 tests / 37 files (+ helpers/, fixtures/)
 ├─ skill/SKILL.md               the /collab skill that drives ensemble from Claude Code
 │
 ├─ AGENTS.md                    canonical project context (Codex reads this name)
@@ -82,7 +84,7 @@ The copied tree is self-sufficient — checked in this folder, not inherited fro
 |---|---|
 | `npx tsc --noEmit` | clean |
 | `npx eslint . --ext .ts` | clean |
-| `npx vitest run` | 456 passed / 33 files |
+| `npx vitest run` | 544 passed / 37 files |
 | `npx tsx src/server/index.ts` (on 23100) | `{"status":"healthy"}`, GUI served at `/` |
 
 ---

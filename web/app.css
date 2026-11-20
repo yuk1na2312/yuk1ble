@@ -263,6 +263,17 @@ input::placeholder, textarea::placeholder { color: #85808f; }
 .composer .primary { align-self: end; }
 .composer .form-error { min-height: 0; }
 .composer .form-error:empty { display: none; }
+.skill-picker { grid-column: 1 / -1; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); font-size: 12.5px; }
+.skill-picker[hidden] { display: none; }
+.skill-picker-head { display: flex; justify-content: space-between; padding: 6px 10px; color: var(--dim); border-bottom: 1px solid var(--line); }
+.skill-picker-list { max-height: 220px; overflow: auto; }
+.skill-picker-group { padding: 6px 10px 2px; color: var(--dim); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.skill-picker-row { padding: 4px 10px; cursor: pointer; font-family: var(--mono); }
+.skill-picker-row.is-active { background: var(--panel); box-shadow: inset 3px 0 0 var(--brass); }
+.skill-picker-desc:not(:empty), .skill-picker-foot, .skill-picker-hint, .skill-picker-empty { margin: 0; padding: 6px 10px; color: var(--dim); }
+.skill-picker-desc:not(:empty), .skill-picker-foot { border-top: 1px solid var(--line); }
+.skill-picker-desc:empty { display: none; }
+.msg-badge { font: 11px/1.4 var(--mono); color: var(--brass); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; }
 
 /* ── log drawer ───────────────────────────────────────────────────────── */
 

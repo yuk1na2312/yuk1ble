@@ -95,6 +95,12 @@ strictly read-only: ensemble never touches credential files and offers no sign-i
 Only a state, an account label and a plan label ever leave the server; raw CLI output is
 discarded, so a token in it cannot reach the browser. Answers are cached for a minute.
 
+**Skills.** With one agent picked in the composer's *Send to*, typing `/` lists the skills
+installed for that agent's CLI (project, personal and plugin skills, from the `skills` entry of
+its adapter). Pick one, add arguments and send: the agent gets `/skill args` on a line of its own,
+then a short reminder to report back with `team-say`. Only a skill from that agent's own list is
+sent this way; any other text starting with `/` goes as an ordinary message.
+
 ### Option B — headless, one command
 
 Starts the server if it isn't up, creates the team, and tails the conversation until the
@@ -225,6 +231,8 @@ authentication**. Don't expose it. A request whose `Host` is not a loopback name
 | `GET /api/v1/health` | Liveness |
 | `GET /api/ensemble/programs` | The agent CLIs from `agents.json`: icon, colour, models, installed |
 | `GET /api/ensemble/accounts` | Read-only account status per program: `state` (`signed-in`, `signed-out`, `unsupported`, `error`), `account`, `plan`, `detail`. GET only, there is no sign-in or sign-out route |
+| `GET /api/ensemble/skills?team=<id>&agent=<name>` | The installed skills of one agent (token, name, description, group) |
+| `POST /api/ensemble/teams/:id/skill` | `{ agent, token, args? }`: fire one of that agent's skills at it |
 | `GET /api/ensemble/teams`, `GET /api/ensemble/teams/:id` | Teams (and one team's messages) |
 | `GET /api/ensemble/teams/:id/feed?since=<seq>` | Messages after `seq` |
 | `POST /api/ensemble/teams` | Create a team; answers 202, startup continues in the background |

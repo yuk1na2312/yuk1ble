@@ -5,11 +5,14 @@
 import { $, atBottom, h, scrollToBottom, setChildren, timeOf } from './dom.js'
 import * as api from './api.js'
 import { agentLook, on, selectedTeam } from './store.js'
+import { attachSkillPicker } from './skill-picker.js'
 
 /** Message nodes kept in the page; older ones scroll away for good (they stay in the feed). */
 export const MAX_MESSAGE_NODES = 2000
 
 let view = freshView(undefined)
+/** The composer's "/" skill picker, attached in initTranscript. */
+let picker
 
 function freshView(teamId) {
   return { teamId, lastSeq: 0, loading: true, buffered: [], unseen: 0, confirming: false, disbanding: false }
@@ -30,11 +33,13 @@ function voiceOf(team, from) {
 
 function messageNode(team, message) {
   const voice = voiceOf(team, message.from)
-  return h('li', { class: 'msg', dataset: { kind: voice.kind }, style: `--voice:${voice.color}` },
+  const command = message.type === 'command' // a skill fired at one agent from the "/" picker
+  return h('li', { class: 'msg', dataset: { kind: voice.kind, type: message.type }, style: `--voice:${voice.color}` },
     h('div', { class: 'msg-head' },
       voice.icon && h('span', { class: 'msg-icon', 'aria-hidden': 'true' }, voice.icon),
       h('span', { class: 'msg-from' }, message.from),
       message.to && message.to !== 'team' && h('span', { class: 'msg-to' }, `to ${message.to}`),
+      command && h('span', { class: 'msg-badge' }, 'skill'),
       h('time', { class: 'msg-time', dateTime: message.timestamp }, timeOf(message.timestamp))),
     h('div', { class: 'msg-body' }, message.content))
 }
@@ -144,6 +149,13 @@ function paintComposer(team) {
     : 'Steer the team. Enter sends, Shift+Enter adds a line.'
 }
 
+/** The live team and single agent the composer is addressed to, or null: skills go to one agent only. */
+function skillContext() {
+  const team = selectedTeam()
+  const to = $('composer-to').value
+  return team && team.status !== 'disbanded' && to && to !== 'team' ? { teamId: team.id, agent: to } : null
+}
+
 async function submitComposer(event) {
   event?.preventDefault()
   const team = selectedTeam()
@@ -154,7 +166,13 @@ async function submitComposer(event) {
   send.disabled = true
   setComposerError('')
   try {
-    await api.sendMessage(team.id, $('composer-to').value || 'team', content)
+    const to = $('composer-to').value || 'team'
+    // "/token args" to one agent is a skill when the token is one of that agent's own; anything else is plain text.
+    const slash = to !== 'team' && /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(content)
+    const skill = slash && await picker.lookup({ teamId: team.id, agent: to }, slash[1])
+    if (skill) await api.invokeSkill(team.id, to, skill.token, (slash[2] ?? '').trim())
+    else await api.sendMessage(team.id, to, content)
+    picker.close()
     text.value = ''
   } catch (err) {
     setComposerError(`Message not sent: ${err.message}`)
@@ -215,6 +233,9 @@ export function initTranscript() {
     paintJump()
   })
   $('composer').addEventListener('submit', submitComposer)
+  // Before the Enter handler below, so that Enter on a highlighted skill picks it instead of sending.
+  picker = attachSkillPicker({ input: $('composer-text'), panel: $('skill-picker'), getContext: skillContext })
+  $('composer-to').addEventListener('change', picker.refresh)
   $('composer-text').addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault()

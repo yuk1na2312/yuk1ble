@@ -43,7 +43,7 @@ For a step-by-step manual (start, use, configure, troubleshoot) see
 
 The port is functionally complete: teams spawn, agents exchange messages, the GUI renders
 live PTY panes, teardown kills the full process tree. `npm run typecheck`, `npm run lint`
-and `npm test` (456 tests / 33 files) are green. What remains is repeated real-world use.
+and `npm test` (544 tests / 37 files) are green. What remains is repeated real-world use.
 
 ---
 
@@ -66,7 +66,9 @@ src/
     store.ts              in-memory store: teams, per-team feed (seq, 5,000-message cap) + persistence log
     bus.ts                typed event bus: `team`, `message`, `log`
     messaging.ts          sendTeamMessage: into the feed, then delivered in the background
-    delivery.ts           deliver(): the one way text reaches a terminal (queue, paste, submit)
+    delivery.ts           deliver(): the one way text reaches a terminal (queue, paste, submit);
+                          deliverSkillCommand(): a slash command, a check it left the composer, then a nudge
+    skill-invoke.ts       getAgentSkills / invokeAgentSkill: an agent's skill catalog, and firing one at it
     paste-submit.ts       ensureSubmitted() — a paste alone never submits; Enter does
     readiness.ts          waitForReady(): abort / exit / gates / ready markers / quiescence; wakes on PTY output
     pane-readiness.ts     marker match / shell-prompt guard / quiescent-screen fallback (pure predicates)
@@ -90,16 +92,18 @@ src/
     programs.ts           describePrograms() behind GET /api/ensemble/programs (PATH lookup, cached 30 s)
     accounts.ts           getAccountStatuses() behind GET /api/ensemble/accounts: runs each adapter's
                           `account` status command, allowlisted result, 5 s timeout, cached 60 s
+    skills.ts             getSkillCatalog(): the installed skills of an agent (adapter `skills` roots and
+                          plugin manifest), read-only, bounded scan, no paths in the result, cached 60 s
     types.ts              the agents.json schema types
   cli/
     ensemble.ts           CLI entrypoint (status, run, steer, disband, team-say, team-read) — pure HTTP client
 web/                      monitoring GUI, served at `/`: index.html, app.css and ES modules in js/
-                          (accounts, api, archive, events, store, teams, terminals, transcript, new-team, log, main);
+                          (accounts, api, archive, events, store, teams, terminals, transcript, skill-picker, new-team, log, main);
                           vanilla JS, no build step; xterm.js comes from /vendor/xterm/*
 bin/                      ensemble.cjs (CLI shim) + postinstall.cjs (node-pty check)
 agents.json               one adapter per agent CLI: command, flags, cwdFlag/addDirFlag, readyMarkers,
                           inputMethod, pasteMarker, gates, usagePatterns, modelFlag/models, stripEnv,
-                          account, color, icon
+                          account, skills, color, icon
 collab-templates.json     collaboration presets
 skill/SKILL.md            the /collab skill that drives ensemble from Claude Code
 tests/                    vitest; live-captured terminal screens (tests/fixtures/screens.ts) used as
@@ -121,6 +125,8 @@ allow; no Origin (CLI, curl) is fine. Bodies over 1 MB are a 413.
 | `GET /api/v1/health` | liveness |
 | `GET /api/ensemble/programs` | the adapter catalog (name, icon, color, models, installed) |
 | `GET /api/ensemble/accounts` | read-only account status per program: `{ program, state, account?, plan?, detail? }`, `state` one of `signed-in`, `signed-out`, `unsupported`, `error`; cached 60 s. GET only |
+| `GET /api/ensemble/skills?team=<id>&agent=<name>` | the agent's installed skills: `{ program, invocation, skills: [{ token, name, description?, source, group }], detail? }`. Addressed by team and agent, never by a path |
+| `POST …/teams/:id/skill` `{ agent, token, args? }` | fire one of that agent's skills: `token` must be in its live catalog, `args` one line (max 4,000 chars); 409 if its terminal is gone. A `command` message in the feed |
 | `GET /api/ensemble/teams`, `GET …/teams/:id`, `GET …/teams/:id/feed?since=<seq>` | state, served from memory |
 | `POST /api/ensemble/teams` | create a team; **202** at once |
 | `POST …/teams/:id` (message), `POST …/teams/:id/disband`, `DELETE …/teams/:id` | talk to / end a team |
@@ -269,6 +275,12 @@ Copy `.env.example` to `.env` before running. The server and CLI load it at star
   installs CLIs as `.cmd` shims, which Node will not execFile without a shell, so the loader
   rejects any shell metacharacter in an `account` command or args (the `cmd.exe` ban is about
   `ENSEMBLE_SHELL`, the PTY shell, not this one-shot probe). A timeout kills the tree.
+- **A skill token is an allowlist, not free text.** `POST …/skill` writes `/token args` raw into a
+  terminal, so the token must be in that agent's own catalog and `args` may hold no control character
+  (a CR would submit early and start a second line). The catalog never returns a filesystem path and
+  is addressed by team and agent only, so the route cannot become a directory reader. Whether the
+  command left the composer is judged by its text on the last screen line, a signature not yet
+  confirmed against a live capture of a real CLI's `/` menu.
 - **Model ids are an allowlist per program** (`models` in `agents.json`). A model not listed
   is a 400 before anything is spawned: a bad id makes the CLI exit at once and the readiness
   wait burns its whole window. Do not add ids that no live run has confirmed.
@@ -296,6 +308,7 @@ strings that appear when it is at its input prompt), `inputMethod` (`sendKeys` o
 | `modelFlag`, `models` | the model allowlist `[{ id, label }]`; needs `modelFlag` |
 | `stripEnv` | regex sources of environment variables withheld from agent shells (the union over all programs applies to every shell) |
 | `account` | read-only account probe for the Accounts view: `{ args, json }` or `{ args, text }`, or `{ unsupported: "reason" }` for a CLI with no status command (no key means the same, generic reason). `args` follow `command` (a bare name) and may use only letters, digits and `. _ - : = @ + / \`. `json`: `{ signedIn, account, plan }`, lists of keys, first hit wins (`signedIn` is a boolean). `text`: `{ signedOut, signedIn, account, plan }`, regex sources (`account` and `plan` are lists, one capture group each); `signedOut` is tried first. |
+| `skills` | installed-skill picker: `{ invocation, roots, plugins? }`. `invocation` is `slash` (`/token args` on its own line), `prose` (an ordinary team message asking the agent to use the skill) or `none`. `roots`: `[{ dir, source }]`, `source` `project` or `personal`; each `dir` holds `<name>/SKILL.md` folders. `plugins`: a manifest `{ plugins: { "name@market": [{ scope, installPath }] } }`, each plugin's `<installPath>/skills` listed as `plugin:name`. Paths start with `{home}`, `{project}` (the agent's worktree or the team's working directory) or `{env:NAME=default}`. |
 
 Check it with `npm test` (the loader validates every entry), then run it live: unit tests
 stop at argv construction and screen fixtures. `tests/adapters.test.ts` shows a fake CLI

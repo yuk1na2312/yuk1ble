@@ -36,6 +36,12 @@ export const getLogs = since => request(`${BASE}/logs${since ? `?since=${since}`
 export const createTeam = async payload => (await post(`${BASE}/teams`, payload)).team
 export const sendMessage = (teamId, to, content) =>
   post(`${BASE}/teams/${encodeURIComponent(teamId)}`, { to, from: 'user', content })
+/** { program, invocation, skills: [{ token, name, description?, source, group }], detail? }: the agent's installed skills. */
+export const getSkills = (teamId, agent) =>
+  request(`${BASE}/skills?team=${encodeURIComponent(teamId)}&agent=${encodeURIComponent(agent)}`)
+/** Fires one of the agent's skills at it; the server accepts only a token from that agent's own catalog. */
+export const invokeSkill = (teamId, agent, token, args) =>
+  post(`${BASE}/teams/${encodeURIComponent(teamId)}/skill`, { agent, token, args })
 export const disbandTeam = teamId => post(`${BASE}/teams/${encodeURIComponent(teamId)}/disband`, {})
 export const archiveTeam = (teamId, archived) => post(`${BASE}/teams/${encodeURIComponent(teamId)}/archive`, { archived })
 /** Resolves to { ok, warnings }; erases an archived team for good. */
