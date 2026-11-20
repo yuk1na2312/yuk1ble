@@ -13,7 +13,7 @@
 
 import { getRuntime } from '../runtime/agent-runtime'
 import type { AgentRuntime } from '../runtime/agent-runtime'
-import { ensureSubmitted } from './paste-submit'
+import { ensureSubmitted, waitForCommandAccepted } from './paste-submit'
 
 /** Deliveries waiting or running per session; the next one is dropped. */
 export const MAX_PENDING_DELIVERIES = 50
@@ -69,14 +69,47 @@ export function deliver(sessionName: string, text: string, options: DeliverOptio
     const runtime = options.runtime ?? getRuntime()
     // A finished agent's terminal is gone: pasting would only raise "PTY session not found".
     if (!runtime.exists(sessionName)) return 'gone'
+    await writeAndSubmit(runtime, sessionName, text, options)
+    return 'delivered'
+  })
+}
 
-    if (options.inputMethod === 'sendKeys') {
-      runtime.sendKeys(sessionName, text, { literal: true, enter: true })
-    } else {
-      // Paste, not typed input: typing breaks on ?, !, `, $ and \ in PowerShell and treats a newline as Enter.
-      runtime.paste(sessionName, text)
-    }
-    await ensureSubmitted(runtime, sessionName, options.pasteMarker)
+async function writeAndSubmit(runtime: DeliveryRuntime, sessionName: string, text: string, options: DeliverOptions): Promise<void> {
+  if (options.inputMethod === 'sendKeys') {
+    runtime.sendKeys(sessionName, text, { literal: true, enter: true })
+  } else {
+    // Paste, not typed input: typing breaks on ?, !, `, $ and \ in PowerShell and treats a newline as Enter.
+    runtime.paste(sessionName, text)
+  }
+  await ensureSubmitted(runtime, sessionName, options.pasteMarker)
+}
+
+/**
+ * - `delivered`: the command was accepted and the follow-up went in after it.
+ * - `unconfirmed`: the command was written but the composer still showed it after the confirmation window; no follow-up was sent.
+ * - `dropped` / `gone`: as for `deliver`; nothing was written.
+ */
+export type SkillDeliveryOutcome = 'delivered' | 'unconfirmed' | 'dropped' | 'gone'
+
+/**
+ * Fire a slash command at a session: `command` alone on its line, then a check that it left the composer
+ * (`waitForCommandAccepted`, which presses a few extra Enters), then `followUp` as a second delivery.
+ * All of it is one job in the session's queue, so no teammate message can land between the command and
+ * the check, and the follow-up never lands on top of a command stuck in the composer.
+ */
+export function deliverSkillCommand(
+  sessionName: string,
+  command: { text: string; token: string; followUp: string },
+  options: DeliverOptions = {},
+): Promise<SkillDeliveryOutcome> {
+  if (pendingDeliveries(sessionName) >= MAX_PENDING_DELIVERIES) return Promise.resolve('dropped')
+
+  return runExclusive(sessionName, async (): Promise<SkillDeliveryOutcome> => {
+    const runtime = options.runtime ?? getRuntime()
+    if (!runtime.exists(sessionName)) return 'gone'
+    await writeAndSubmit(runtime, sessionName, command.text, options)
+    if (!await waitForCommandAccepted(runtime, sessionName, command.token)) return 'unconfirmed'
+    await writeAndSubmit(runtime, sessionName, command.followUp, options)
     return 'delivered'
   })
 }

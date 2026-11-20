@@ -64,6 +64,29 @@ export type AgentAccount =
   | { args: string[]; json: AgentAccountJson }
   | { args: string[]; text: AgentAccountText }
 
+/**
+ * How an installed skill is fired at an agent. `slash`: `/token args` on a line of its own.
+ * `prose`: an ordinary team message asking it to use the skill. `none`: no skill support.
+ */
+export type SkillInvocation = 'slash' | 'prose' | 'none'
+
+/** One directory of `<name>/SKILL.md` folders; `source` is also the group heading in the picker. */
+export interface AgentSkillRoot {
+  /** Path template: starts with {home}, {project} or {env:NAME=default} (the default may use {home} and {project}). */
+  dir: string
+  source: 'project' | 'personal'
+}
+
+export interface AgentSkills {
+  invocation: SkillInvocation
+  roots: AgentSkillRoot[]
+  /**
+   * Path template of a plugin manifest, `{ "plugins": { "name@market": [{ "scope", "installPath" }] } }`:
+   * each plugin's `<installPath>/skills` is a root, grouped and prefixed by the plugin name.
+   */
+  plugins?: string
+}
+
 export interface AgentProgram {
   /** The key in agents.json (e.g. "codex"). */
   name: string
@@ -95,8 +118,8 @@ export interface AgentProgram {
   models?: AgentModel[]
   /** Account-status probe, or the reason there is none. Absent: reported as unsupported. */
   account?: AgentAccount
-  /** Reserved for the skill picker; unused. */
-  skillInvocation?: string
+  /** Installed-skill discovery and invocation (GET /api/ensemble/skills). Absent: the program has no skill support. */
+  skills?: AgentSkills
   /** Environment variables (regex sources, case-insensitive) withheld from the shells agents run in. */
   stripEnv?: string[]
   /** Hex colour for the GUI and CLI, e.g. "#6aa9ff". */

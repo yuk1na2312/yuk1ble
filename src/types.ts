@@ -22,16 +22,10 @@ export interface EnsembleTeam {
    */
   archivedAt?: string
   /**
-   * The directory this team's agents were spawned into, as requested at
-   * creation time. Absent means "the server's own cwd was used" — see
-   * `resolveAgentProjectDir` in services/ensemble-service.ts, which is the
-   * only place that fallback is applied.
-   *
-   * Persisted because project-scoped skill discovery needs to read it back
-   * long after creation. Before this field existed the value lived only as a
-   * local inside createEnsembleTeam, so nothing could recover it later. No
-   * migration: records written earlier simply have no value, which resolves
-   * to the same cwd default they were created under.
+   * The directory this team's agents were spawned into, as requested at creation. Absent means the
+   * server's own cwd was used: `resolveAgentProjectDir` in src/core/skill-invoke.ts is the one place
+   * that fallback is applied. Persisted so project-scoped skill discovery can read it back later;
+   * records written before the field existed simply have no value, which resolves the same way.
    */
   workingDirectory?: string
 }

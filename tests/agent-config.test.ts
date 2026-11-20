@@ -266,3 +266,58 @@ describe('the shipped model catalog', () => {
     for (const name of ['aider', 'gemini', 'opencode']) expect(resolveAgentModels(name)).toEqual([])
   })
 })
+
+describe('the skills key', () => {
+  const root = { dir: '{project}/.fake/skills', source: 'project' }
+  const skills = (overrides: Record<string, unknown>) => withEntry({ skills: { invocation: 'slash', roots: [root], ...overrides } })
+
+  beforeEach(() => { delete process.env.ENSEMBLE_AGENTS_CONFIG; clearAgentsConfigCache() })
+  afterEach(() => clearAgentsConfigCache())
+
+  it('is optional, and the shipped file gives slash skills to claude (with plugins) and codex only', () => {
+    expect(parseAgentsConfig(withEntry({})).fake.skills).toBeUndefined()
+    const config = loadAgentsConfig()
+    expect(config.claude.skills).toEqual({
+      invocation: 'slash',
+      roots: [{ dir: '{project}/.claude/skills', source: 'project' }, { dir: '{home}/.claude/skills', source: 'personal' }],
+      plugins: '{home}/.claude/plugins/installed_plugins.json',
+    })
+    expect(config.codex.skills?.invocation).toBe('slash')
+    expect(config.codex.skills?.roots[1].dir).toBe('{env:CODEX_HOME={home}/.codex}/skills')
+    for (const name of ['aider', 'gemini', 'opencode']) expect(config[name].skills, name).toBeUndefined()
+  })
+
+  it('accepts slash, prose and a bare none, and every placeholder', () => {
+    expect(parseAgentsConfig(skills({ invocation: 'prose' })).fake.skills?.invocation).toBe('prose')
+    expect(parseAgentsConfig(withEntry({ skills: { invocation: 'none' } })).fake.skills).toEqual({ invocation: 'none', roots: [] })
+    const parsed = parseAgentsConfig(skills({
+      roots: [{ dir: '{home}/a', source: 'personal' }, { dir: '{env:FAKE_HOME={home}/.fake}/skills', source: 'personal' }, { dir: '{env:X={project}/p}/s', source: 'project' }],
+      plugins: '{home}/plugins.json',
+    }))
+    expect(parsed.fake.skills?.roots).toHaveLength(3)
+    expect(parsed.fake.skills?.plugins).toBe('{home}/plugins.json')
+  })
+
+  it.each([
+    ['not an object', 'yes', 'skills": must be an object'],
+    ['no invocation', {}, 'invocation: must be "slash", "prose" or "none"'],
+    ['an unknown invocation', { invocation: 'macro', roots: [root] }, 'invocation'],
+    ['roots that are not an array', { invocation: 'slash', roots: 'x' }, 'roots: must be an array'],
+    ['a root that is not an object', { invocation: 'slash', roots: ['x'] }, 'roots[0]'],
+    ['a root source outside project and personal', { invocation: 'slash', roots: [{ dir: '{home}/x', source: 'plugin' }] }, 'roots[0].source'],
+    ['a relative root', { invocation: 'slash', roots: [{ dir: 'skills', source: 'project' }] }, 'roots[0].dir'],
+    ['an absolute root', { invocation: 'slash', roots: [{ dir: 'C:\\skills', source: 'project' }] }, 'roots[0].dir'],
+    ['an unknown placeholder', { invocation: 'slash', roots: [{ dir: '{home}/{user}/x', source: 'project' }] }, 'roots[0].dir'],
+    ['an env placeholder without a default', { invocation: 'slash', roots: [{ dir: '{env:CODEX_HOME}/x', source: 'project' }] }, 'roots[0].dir'],
+    ['an unclosed placeholder', { invocation: 'slash', roots: [{ dir: '{home/x', source: 'project' }] }, 'roots[0].dir'],
+    ['a relative plugin manifest', { invocation: 'slash', roots: [root], plugins: 'plugins.json' }, 'plugins'],
+    ['slash with nowhere to look', { invocation: 'slash', roots: [] }, 'needs at least one root'],
+  ])('rejects %s', (_label, raw, message) => {
+    expect(() => parseAgentsConfig(withEntry({ skills: raw }))).toThrow(AgentConfigError)
+    expect(() => parseAgentsConfig(withEntry({ skills: raw }))).toThrow(message)
+  })
+
+  it('names the program in the error', () => {
+    expect(() => parseAgentsConfig(withEntry({ skills: { invocation: 'x' } }))).toThrow('program "fake": "skills"')
+  })
+})

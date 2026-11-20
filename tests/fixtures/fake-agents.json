@@ -8,6 +8,7 @@
       "args": ["tests/fixtures/fake-account.mjs"],
       "json": { "signedIn": ["loggedIn"], "account": ["email"], "plan": ["subscriptionType"] }
     },
+    "skills": { "invocation": "slash", "roots": [{ "dir": "{project}/.fake/skills", "source": "project" }] },
     "color": "#6aa9ff",
     "icon": "◆"
   },
@@ -16,6 +17,7 @@
     "flags": ["tests/fixtures/fake-agent.mjs"],
     "readyMarkers": ["FAKE AGENT READY >"],
     "inputMethod": "pasteFromFile",
+    "skills": { "invocation": "prose", "roots": [{ "dir": "{project}/.fake/skills", "source": "project" }] },
     "modelFlag": "--model",
     "models": [{ "id": "m1", "label": "Model one" }, { "id": "m2", "label": "Model two" }],
     "color": "#7ec98f",

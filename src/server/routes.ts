@@ -9,6 +9,7 @@ import {
 } from '../core/team-lifecycle'
 import { getRuntime } from '../runtime/agent-runtime'
 import { isLiveTeamSession } from '../core/store'
+import { getAgentSkills, invokeAgentSkill } from '../core/skill-invoke'
 import { getLogEntries } from './log-buffer'
 import { getAccountStatuses } from '../adapters/accounts'
 import { describePrograms } from '../adapters/programs'
@@ -143,6 +144,23 @@ export function createRequestHandler({ host, port, webRoot }: RequestHandlerOpti
       // Purge an archived team for good: /api/ensemble/teams/:id/purge
       const purgeMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/purge$/)
       if (purgeMatch && method === 'POST') return reply(await purgeTeam(purgeMatch[1]))
+
+      // Fire an installed skill at one agent: /api/ensemble/teams/:id/skill  { agent, token, args? }
+      const skillMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/skill$/)
+      if (skillMatch && method === 'POST') {
+        const body = await readJsonBody(req) as { agent?: unknown; token?: unknown; args?: unknown } | null
+        if (typeof body?.agent !== 'string' || !body.agent) return json({ error: 'agent is required (non-empty string)' }, 400)
+        if (typeof body.token !== 'string' || !body.token) return json({ error: 'token is required (non-empty string)' }, 400)
+        if (body.args !== undefined && typeof body.args !== 'string') return json({ error: 'args must be a string' }, 400)
+        return reply(await invokeAgentSkill(skillMatch[1], body.agent, body.token, body.args ?? ''))
+      }
+
+      // Installed skills of one agent: /api/ensemble/skills?team=<id>&agent=<name>.
+      // Team and agent only, never a path: the directory comes from the team record, so this cannot
+      // be turned into a directory reader on an API that has no login.
+      if (pathname === '/api/ensemble/skills' && method === 'GET') {
+        return reply(await getAgentSkills(url.searchParams.get('team') || '', url.searchParams.get('agent') || ''))
+      }
 
       // Feed: /api/ensemble/teams/:id/feed
       const feedMatch = pathname.match(/^\/api\/ensemble\/teams\/([^/]+)\/feed$/)

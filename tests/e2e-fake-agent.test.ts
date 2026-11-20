@@ -207,6 +207,25 @@ describe('a team of fake agents, end to end', () => {
     expect(hello).toMatchObject({ teamId: team.id, from: 'user', to: 'team' })
     expect(hello?.seq).toEqual(expect.any(Number))
 
+    // A skill installed in the team's working directory is listed, and firing it types the command, then the nudge, into the right terminal only.
+    const skillDir = path.join(root, '.fake', 'skills', 'greet')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: greet\ndescription: Say hello.\n---\nBody')
+    const catalog = await api<{ invocation: string; skills: Array<{ token: string }> }>('GET', `/api/ensemble/skills?team=${team.id}&agent=${team.agents[0].name}`)
+    expect(catalog.body).toMatchObject({ invocation: 'slash', skills: [{ token: 'greet' }] })
+    expect(JSON.stringify(catalog.body)).not.toContain(root)
+    const fired = await api<{ message: EnsembleMessage }>('POST', `/api/ensemble/teams/${team.id}/skill`, { agent: team.agents[0].name, token: 'greet', args: 'from the e2e test' })
+    expect(fired.status).toBe(200)
+    expect(fired.body.message).toMatchObject({ type: 'command', to: team.agents[0].name, content: '/greet from the e2e test' })
+    await until('the agent to receive the command and then the nudge', async () => {
+      const text = await pane(sessions[0])
+      const command = text.indexOf('got: /greet from the e2e test')
+      return command >= 0 && text.indexOf('got: → When you', command) > command ? true : undefined
+    }, 45_000)
+    expect(await pane(sessions[1])).not.toContain('/greet')
+    const commands = (await api<{ messages: EnsembleMessage[] }>('GET', `/api/ensemble/teams/${team.id}/feed`)).body.messages.filter(m => m.type === 'command')
+    expect(commands).toHaveLength(1)
+
     // A session stream: scrollback replay first, then live bytes; input typed into it is echoed.
     const stream = openSse(`${baseUrl}/api/ensemble/sessions/${sessions[0]}/stream`)
     streams.push(stream)

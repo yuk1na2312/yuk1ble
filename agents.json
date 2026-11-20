@@ -34,6 +34,13 @@
         "plan": ["\\(([^)]+)\\)"]
       }
     },
+    "skills": {
+      "invocation": "slash",
+      "roots": [
+        { "dir": "{project}/.codex/skills", "source": "project" },
+        { "dir": "{env:CODEX_HOME={home}/.codex}/skills", "source": "personal" }
+      ]
+    },
     "modelFlag": "--model",
     "models": [{ "id": "gpt-5.6-sol", "label": "Sol" }],
     "color": "#6aa9ff",
@@ -75,6 +82,14 @@
         "account": ["email", "account", "user", "username"],
         "plan": ["subscriptionType", "plan", "subscription", "tier"]
       }
+    },
+    "skills": {
+      "invocation": "slash",
+      "roots": [
+        { "dir": "{project}/.claude/skills", "source": "project" },
+        { "dir": "{home}/.claude/skills", "source": "personal" }
+      ],
+      "plugins": "{home}/.claude/plugins/installed_plugins.json"
     },
     "modelFlag": "--model",
     "models": [

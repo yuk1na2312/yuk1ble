@@ -149,6 +149,8 @@ export function createTeam(request: CreateTeamRequest): EnsembleTeam {
     createdBy: getCreatedBy(),
     createdAt: new Date().toISOString(),
     feedMode: request.feedMode || 'live',
+    // As requested; absent means the server's cwd was used (src/core/skill-invoke.ts resolves that fallback).
+    ...(request.workingDirectory ? { workingDirectory: request.workingDirectory } : {}),
   }
   teams.set(team.id, team)
   markTeamsDirty()

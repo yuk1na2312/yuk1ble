@@ -9,7 +9,9 @@
 import fs from 'fs'
 import path from 'path'
 import { REPO_ROOT } from '../repo-root'
-import type { AgentAccount, AgentGate, AgentModel, AgentProgram, AgentsConfig, AgentUsagePattern } from './types'
+import type {
+  AgentAccount, AgentGate, AgentModel, AgentProgram, AgentSkillRoot, AgentSkills, AgentsConfig, AgentUsagePattern, SkillInvocation,
+} from './types'
 
 export class AgentConfigError extends Error {
   constructor(message: string) {
@@ -175,6 +177,47 @@ function parseAccount(raw: unknown, where: string, command: string): AgentAccoun
   }
 }
 
+/**
+ * Placeholders of a skill path template (src/adapters/skills.ts expands them): `{home}`, `{project}` and
+ * `{env:NAME=default}`, whose default may itself use `{home}` or `{project}`. Anything else in braces is an error.
+ */
+export const SKILL_PLACEHOLDER = /\{env:([A-Za-z_]\w*)=((?:[^{}]|\{(?:home|project)\})*)\}|\{(home|project)\}/g
+
+function parsePathTemplate(raw: unknown, where: string): string {
+  // Starting with a placeholder keeps the directory absolute: a bare relative path would depend on the server's cwd.
+  if (!nonBlank(raw) || !/^\{(home|project|env:)/.test(raw) || /[{}]/.test(raw.replace(SKILL_PLACEHOLDER, ''))) {
+    throw new AgentConfigError(`${where}: must start with {home}, {project} or {env:NAME=default}, and use no other braces`)
+  }
+  return raw
+}
+
+const SKILL_INVOCATIONS: readonly string[] = ['slash', 'prose', 'none']
+
+function parseSkills(raw: unknown, where: string): AgentSkills {
+  if (!isRecord(raw)) throw new AgentConfigError(`${where}: must be an object`)
+  if (typeof raw.invocation !== 'string' || !SKILL_INVOCATIONS.includes(raw.invocation)) {
+    throw new AgentConfigError(`${where}.invocation: must be "slash", "prose" or "none"`)
+  }
+  const roots = raw.roots === undefined ? [] : raw.roots
+  if (!Array.isArray(roots)) throw new AgentConfigError(`${where}.roots: must be an array`)
+  const skills: AgentSkills = {
+    invocation: raw.invocation as SkillInvocation,
+    roots: roots.map((root, i): AgentSkillRoot => {
+      const at = `${where}.roots[${i}]`
+      if (!isRecord(root)) throw new AgentConfigError(`${at}: must be { "dir": "...", "source": "project" | "personal" }`)
+      if (root.source !== 'project' && root.source !== 'personal') {
+        throw new AgentConfigError(`${at}.source: must be "project" or "personal"`)
+      }
+      return { dir: parsePathTemplate(root.dir, `${at}.dir`), source: root.source }
+    }),
+  }
+  if (raw.plugins !== undefined) skills.plugins = parsePathTemplate(raw.plugins, `${where}.plugins`)
+  if (skills.invocation !== 'none' && skills.roots.length === 0 && !skills.plugins) {
+    throw new AgentConfigError(`${where}: "${skills.invocation}" needs at least one root or a "plugins" manifest`)
+  }
+  return skills
+}
+
 function parseProgram(name: string, raw: unknown): AgentProgram {
   const at = `program "${name}"`
   if (!isRecord(raw)) throw new AgentConfigError(`${at}: must be an object`)
@@ -249,10 +292,7 @@ function parseProgram(name: string, raw: unknown): AgentProgram {
 
   if (raw.account !== undefined) program.account = parseAccount(raw.account, `${at}: "account"`, program.command)
 
-  if (raw.skillInvocation !== undefined) {
-    if (!nonBlank(raw.skillInvocation)) throw new AgentConfigError(`${at}: "skillInvocation" must be a non-blank string`)
-    program.skillInvocation = raw.skillInvocation
-  }
+  if (raw.skills !== undefined) program.skills = parseSkills(raw.skills, `${at}: "skills"`)
   return program
 }
 
